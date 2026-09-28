@@ -1736,6 +1736,51 @@ def _acoes_do_dia(eid: str, nome: str, dia_iso: str, dia_br: str, dias_civis: li
     return acoes
 
 
+def _acao_folga(eid: str, nome: str, dia_iso: str, dia_br: str, *, desmarcar: bool = False) -> dict:
+    """«Marcar como folga» / «Tirar a folga» — a porta que faltava para `shifts.is_off_day`.
+
+    Só aparece em dia SEM batida, porque é o único dia que pode ser folga. A rota recusa de
+    todo jeito se houver batida (409) — cinto e suspensório: a tela não oferece o caminho
+    errado e a rota não aceita o caminho errado.
+
+    Dois botões em vez de um estado lido: marcação errada tem de ser desfeita pela mesma tela,
+    e a rota é idempotente nos dois sentidos. Ler o estado para esconder um dos dois seria mais
+    código para menos garantia.
+    """
+    lbl = "Tirar a folga" if desmarcar else "Marcar como folga"
+    return {
+        "title": f"{lbl} — {dia_br}, {nome}",
+        "sub": (
+            "Dia de folga não conta como falta e não derruba o DSR da semana. "
+            if not desmarcar
+            else "O dia volta a ser dia de escala: se seguir sem batida, volta a contar como falta. "
+        )
+        + "Nada de dinheiro é movido aqui — o que muda é o que o espelho apura no dia.",
+        "endpoint": (
+            f"/api/v1/redesign/action/ponto-marcar-folga"
+            f"?_eid={eid}"  # só para diferenciar a URL entre linhas; o corpo é que manda
+        ),
+        "method": "POST",
+        "btnLabel": lbl,
+        "submitLabel": f"{lbl} de {dia_br}",
+        "btnStyle": "mut" if desmarcar else "primary",
+        "okMsg": f"{dia_br} atualizado. Clique em Consultar para ver o espelho recalculado.",
+        "fields": [
+            {"key": "employee_id", "type": "hidden", "value": eid},
+            {"key": "dia", "type": "hidden", "value": dia_iso},
+            {"key": "acao", "type": "hidden", "value": "desmarcar" if desmarcar else "marcar"},
+            {
+                "key": "motivo",
+                "label": "Motivo (opcional, máx. 200)",
+                "type": "textarea",
+                "span": "span 2",
+                "max": 200,
+                "ph": "Ex.: folgou sábado para cobrir domingo. Fica no histórico com o seu nome.",
+            },
+        ],
+    }
+
+
 def _acao_registrar(eid: str, nome: str, dia_iso: str, dia_br: str, falta: str | None) -> dict:
     """«Registrar ponto em atraso»: INSERE a batida que não aconteceu, com motivo auditado.
 
@@ -1905,7 +1950,14 @@ def _grade_ponto_colaborador(eid: str, ini: date, fim: date) -> tuple[dict, dict
                         b("sem batida", "mut"),
                         t(d.get("obs") or "nenhuma marcação neste dia", 400, "#B45309"),
                     ],
-                    "actions": [_acao_registrar(esp["employee_id"], nome, dia_iso, dia_br, None)],
+                    "actions": [
+                        _acao_registrar(esp["employee_id"], nome, dia_iso, dia_br, None),
+                        # 28/09 — pedido da Pyetra: dia não trabalhado precisa poder ser FOLGA,
+                        # senão vira falta (débito de jornada + perda de DSR). Só aqui, na
+                        # linha sem batida, porque é o único dia que pode ser folga.
+                        _acao_folga(esp["employee_id"], nome, dia_iso, dia_br),
+                        _acao_folga(esp["employee_id"], nome, dia_iso, dia_br, desmarcar=True),
+                    ],
                 }
             )
         pend = sum(1 for i in infos_dia if (i.get("status") or "").lower() not in ("approved", "rejected", "rejeitado"))
@@ -2084,5 +2136,168 @@ async def rd_ponto_plantao_decidir(
         "message": (
             f"{feito} batida(s) do plantão — {decisao}. " + " · ".join(relato)
             + ". Clique em Consultar para ver o novo status."
+        ),
+    }
+
+
+@router.post("/action/ponto-marcar-folga", dependencies=[Depends(_require_dp)])
+async def rd_ponto_marcar_folga(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Marca (ou desmarca) um dia de escala como FOLGA, para ele não virar falta.
+
+    🔴 PEDIDO DA PYETRA, 28/09/2026: *"quando o funcionário folga em um dia para trabalhar no
+    outro, na sólides o dia não trabalhado é colocado 'folga', pois assim não tem desconto"*.
+
+    ⭐ A capacidade já existia INTEIRA e nunca foi ligada. `shifts.is_off_day` é lida pelo
+    espelho (`espelho_service`, dois pontos), por 4 oráculos, e o dia marcado é **pulado** antes
+    de virar `dia_sem_batida`. Medido no dia: `is_off_day = true` existia em **40 linhas, todas
+    de agosto/2026**, e **nenhum código de produção jamais escreveu nessa coluna** — as 40 foram
+    postas à mão. Faltava só a porta para a Pyetra marcar.
+
+    O custo de não marcar, medido no próprio `espelho_service`: dia de escala sem batida e sem
+    cobertura soma `_esperado_turno` ao esperado (**débito de jornada no saldo**) e ainda faz
+    `dsr_entitled = False` (**perde o DSR da semana**). Em setembro havia **110 dias assim, de
+    33 pessoas** — metade da casa.
+
+    ## As travas, e por que cada uma existe
+
+    1. **Dia com batida NÃO pode virar folga.** É a trava que importa: marcar folga num dia em
+       que a pessoa trabalhou apagaria trabalho pago. Recusa com 409.
+    2. **Dia sem linha em `shifts` não é marcável** — não há o que marcar, e esse é um problema
+       DIFERENTE (o extra que ninguém lançou, como o sábado 26/09 da Thayna). Recusa dizendo
+       qual é o caso, em vez de fingir sucesso.
+    3. **Desmarcar existe.** Marcação errada tem de ser reversível pela mesma tela.
+    4. **A auditoria não engole exceção.** Sem rastro, o ato não acontece: mexer no que decide
+       desconto de folha sem registro é pior que não mexer.
+    """
+    import uuid as _uuid
+
+    eid = str(payload.get("employee_id") or "").strip()
+    dia_txt = str(payload.get("dia") or "").strip()[:10]
+    acao = (str(payload.get("acao") or "marcar")).strip().lower()
+    motivo = (str(payload.get("motivo") or "")).strip()[:200]
+    if not eid or not dia_txt:
+        raise HTTPException(status_code=400, detail="Informe o colaborador e o dia (AAAA-MM-DD).")
+    if acao not in ("marcar", "desmarcar"):
+        raise HTTPException(status_code=400, detail="Ação deve ser «marcar» ou «desmarcar».")
+    try:
+        dia = date.fromisoformat(dia_txt)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Dia inválido «{dia_txt}» — use AAAA-MM-DD.") from None
+
+    # Trava 1 — dia com batida não é folga. Vem ANTES de qualquer escrita.
+    if acao == "marcar":
+        n_batidas = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM gp_clock_punches "
+                    " WHERE employee_id = CAST(CAST(:e AS text) AS uuid) AND punch_timestamp::date = :d"
+                ),
+                {"e": eid, "d": dia},
+            )
+        ).scalar() or 0
+        if int(n_batidas) > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{dia:%d/%m/%Y} tem {n_batidas} batida(s) registrada(s) — dia trabalhado não é "
+                    "folga. Se as batidas estiverem erradas, corrija-as primeiro; marcar folga aqui "
+                    "apagaria trabalho pago."
+                ),
+            )
+
+    # Trava 2 — só marca o que existe na escala.
+    linhas = (
+        await db.execute(
+            text(
+                "SELECT id FROM shifts "
+                " WHERE employee_id = CAST(CAST(:e AS text) AS uuid) AND shift_date = :d "
+                "   AND coalesce(status,'') <> 'cancelled'"
+            ),
+            {"e": eid, "d": dia},
+        )
+    ).scalars().all()
+    if not linhas:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Não existe turno lançado para {dia:%d/%m/%Y} — não há o que marcar como folga. "
+                "Dia sem escala já NÃO conta como falta no espelho. Se a pessoa trabalhou nesse dia "
+                "sem escala (um extra), o caso é lançar o turno, não marcar folga."
+            ),
+        )
+
+    novo = acao == "marcar"
+    await db.execute(
+        text(
+            "UPDATE shifts SET is_off_day = :v "
+            " WHERE employee_id = CAST(CAST(:e AS text) AS uuid) AND shift_date = :d "
+            "   AND coalesce(status,'') <> 'cancelled'"
+        ),
+        {"v": novo, "e": eid, "d": dia},
+    )
+
+    # Trava 4 — trilha obrigatória, sem try/except. `actor_user_name` recebe NOME, não uuid:
+    # trilha que a tela mostra como "quem" e traz um id não é trilha legível.
+    quem = str(getattr(current_user, "id", "") or "")
+    nome = (
+        await db.execute(
+            text("SELECT coalesce(nullif(name,''), email) FROM users WHERE id::text = :u LIMIT 1"),
+            {"u": quem},
+        )
+    ).scalar() or quem or "desconhecido"
+    await db.execute(
+        text(
+            "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
+            "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module, "
+            "  related_funcionario_id) "
+            "VALUES (:id, now(), :act, 'shifts', :sid, :desc, 'operacional.ponto', "
+            "  CAST(CAST(:quem AS text) AS uuid), :nome, 'dp', 'ponto', CAST(CAST(:eid AS text) AS uuid))"
+        ),
+        {
+            "id": str(_uuid.uuid4()),
+            "act": "ponto.folga_marcada" if novo else "ponto.folga_desmarcada",
+            "sid": str(linhas[0]),
+            "desc": (
+                f"{dia:%d/%m/%Y}: {len(linhas)} turno(s) "
+                f"{'marcado(s) como FOLGA' if novo else 'com FOLGA removida'}"
+                + (f". Motivo: {motivo}" if motivo else "")
+                + ". Dia de folga não entra como falta nem derruba o DSR."
+            ),
+            "quem": quem,
+            "nome": nome,
+            "eid": eid,
+        },
+    )
+    await db.commit()
+
+    # Prova por LEITURA POSTERIOR. A linha «UPDATE n» do driver já mentiu nesta casa; o que
+    # vale é o estado depois do commit.
+    conferido = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM shifts "
+                " WHERE employee_id = CAST(CAST(:e AS text) AS uuid) AND shift_date = :d "
+                "   AND coalesce(status,'') <> 'cancelled' AND coalesce(is_off_day,false) = :v"
+            ),
+            {"e": eid, "d": dia, "v": novo},
+        )
+    ).scalar() or 0
+    if int(conferido) != len(linhas):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"A gravação não se confirmou na leitura: esperava {len(linhas)} turno(s) com "
+                f"is_off_day={novo} e encontrei {conferido}. Nada foi prometido a você sem prova."
+            ),
+        )
+    return {
+        "ok": True,
+        "message": (
+            f"{dia:%d/%m/%Y} — {conferido} turno(s) "
+            f"{'marcado(s) como FOLGA' if novo else 'de volta a dia normal'}. "
+            + ("Este dia não conta mais como falta e não derruba o DSR. " if novo else "")
+            + "Clique em Consultar para ver o espelho recalculado."
         ),
     }
