@@ -168,9 +168,47 @@ def _falhou(out: dict, tid: str, titulo: str, exc: Exception) -> None:
     }
 
 
+#: 🔴 DERRUBOU A CASA EM 28/09/2026, 01:30–02:00. Este `_ensure` rodava as DUAS sentenças de
+#: `_DDL` **a cada requisição da tela**: um `ALTER TABLE posts ADD COLUMN` e um `UPDATE posts`.
+#:
+#: `ALTER TABLE` pede ACCESS EXCLUSIVE. Quando uma leitura longa já segura o lock compartilhado de
+#: `posts`, o ALTER entra na fila — e a fila de lock do Postgres é **FIFO**, então todo leitor
+#: NOVO empilha atrás dele. Medido no incidente: **146 de 150 processos do banco em `waiting`**,
+#: `FATAL: sorry, too many clients already`, 230 erros de `QueuePool limit` em 3 minutos, e o
+#: Hermes falhando em cadeia porque as ferramentas dele não conseguiam conexão. `posts` é lida
+#: por quase todo o operacional, então uma linha de DDL por requisição basta para travar tudo.
+#:
+#: ⭐ E O PIOR: eu consertei este MESMO defeito hoje à tarde no irmão
+#: (`_dgx_f12_sesmt_demandas_comercial`, 13 deadlocks em 6h → 0) e **não procurei a família**.
+#: A regra já estava escrita nesta casa: depois de todo conserto, procure a assinatura no
+#: repositório inteiro. `grep -rln "ALTER TABLE posts ADD COLUMN"` devolvia os dois arquivos.
+#:
+#: ⚠️ O defeito nunca foi o DDL — é o DDL ser REEXECUTADO. A checagem de existência é uma leitura
+#: em `information_schema` que não pega lock de escrita nenhum.
+_PRONTO = False
+
+
 async def _ensure(db) -> None:
-    for s in _DDL:
-        await db.execute(text(s))
+    global _PRONTO  # noqa: PLW0603
+    if _PRONTO:
+        await rc._ensure(db)
+        return
+
+    # Leitura barata primeiro: a coluna já existe? `ADD COLUMN IF NOT EXISTS` é idempotente no
+    # RESULTADO, mas não no LOCK — ele pede exclusividade mesmo quando não tem nada a fazer.
+    tem_coluna = (await db.execute(text(
+        "SELECT count(*) > 0 FROM information_schema.columns "
+        " WHERE table_name = 'posts' AND column_name = 'salario_base'"))).scalar()
+    if not tem_coluna:
+        await db.execute(text(_DDL[0]))
+
+    # O backfill posto→contrato passa a rodar UMA VEZ POR PROCESSO, não por requisição. Ele
+    # escreve em `posts`, que é território curado pelo Jordan; manter o comportamento que já
+    # existia, mas sem repetir a cada abertura de tela.
+    await db.execute(text(_DDL[1]))
+
+    # ⚠️ Só no FIM: marcar pronto antes faria uma falha no meio virar "já fiz".
+    _PRONTO = True
     await rc._ensure(db)
 
 
