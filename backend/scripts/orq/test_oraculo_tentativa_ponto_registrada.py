@@ -140,6 +140,31 @@ async def main() -> None:
         )
         print("OK a tela dá mensagem PRÓPRIA para a câmera que não abriu")
 
+        # 5d — 🔴 28/09/2026, A TERCEIRA METADE. Consertei o laço da câmera em 27/09 e o
+        # registro continuou VAZIO. No dia seguinte quatro pessoas relataram "apertei e nada
+        # aconteceu" (Telma, Livia, Daniel, Edilene) e `ponto.tentativa_falhou` seguia em zero.
+        #
+        # ⭐ Eu instrumentei tudo que falha ANTES da batida — câmera, GPS, cadastro — e deixei
+        # de fora a falha do PRÓPRIO ENVIO, que é a que as pessoas encontram. O sintoma é
+        # idêntico pelos dois caminhos ("apertei e nada"), então o registro vazio parecia
+        # provar que ninguém falhava, quando provava que eu media o lugar errado.
+        #
+        # A régua é ESTRUTURAL, não textual: o ramo que avisa a pessoa do erro do envio tem de
+        # registrar antes de avisar. Renomear o motivo não deve deixar o oráculo verde à toa.
+        _i_post = tela.find("/facial/batida")
+        _i_erro = tela.find("setBaterErro(", _i_post) if _i_post > 0 else -1
+        assert _i_post > 0 and _i_erro > _i_post, (
+            "não achei o envio da batida facial e o seu tratamento de erro na tela — a régua "
+            "abaixo ficaria afirmando sobre o arquivo errado"
+        )
+        assert "registrarFalha(" in tela[_i_post:_i_erro], (
+            "o ramo de falha do ENVIO da batida voltou a não registrar nada. A pessoa vê "
+            "'não foi possível registrar o ponto', o servidor não fica sabendo, e "
+            "`ponto.tentativa_falhou` segue em zero enquanto gente de verdade não consegue "
+            "bater — foi exatamente o estado de 28/09/2026"
+        )
+        print("OK o ramo de falha do ENVIO da batida registra antes de avisar a pessoa")
+
     print("OK rota /tentativa-falhou existe (falha que morre no celular chega ao servidor)")
     print("OK os 2 gates de recusa da batida facial registram antes de negar")
     print("OK registrar_falha_async engole a própria falha — nunca derruba a batida")

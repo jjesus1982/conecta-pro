@@ -980,6 +980,13 @@ function PontoTab() {
   // Vira true quando o rosto falha: só aí a contingência ganha destaque de botão. Fora
   // disso ela continua discreta, para não virar o caminho fácil de todo dia.
   const [rostoFalhou, setRostoFalhou] = useState(false);
+  // 🔴 28/09/2026 — a selfie da tentativa que FALHOU. Medido no banco: desde 15/09, batida por
+  // `mobile` tem foto em 889 de 889 e por `contingencia` em 0 de 90 — a evidência sumia
+  // justamente no caso em que o DP é o gate humano e a pergunta é "foi essa pessoa?".
+  // O `FacialCapture` já devolve `imageData` quando o rosto não bate com a referência
+  // (`grabFrame()`); o que faltava era guardar e enviar. Fica '' quando a câmera não entregou
+  // quadro nenhum (`camera_sem_quadro`) — ausência honesta, não retângulo cinza.
+  const [fotoTentativa, setFotoTentativa] = useState<{ foto: string; motivo: string } | null>(null);
   const [resultado, setResultado] = useState<BaterResultado | null>(null);
   // A PRECISÃO ENTRA AQUI. `obterLocalizacao` já a lê do aparelho e ela era descartada:
   // 809 batidas com accuracy NULO no banco, e 164 delas (20%) marcadas "fora do posto".
@@ -1196,6 +1203,7 @@ function PontoTab() {
       // três, em silêncio.
       const semCamera = r.motivo === 'camera_sem_quadro';
       const semRosto = r.motivo === 'nao_detectou';
+      setFotoTentativa({ foto: r.imageData || '', motivo: r.motivo || 'rosto_nao_reconhecido' });
       // frente 02: sem sinal, `registrarFalha` não chega ao servidor. A tentativa fica na fila
       // local e sobe junto com a próxima batida, em `tentativas_offline`.
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -1286,6 +1294,18 @@ function PontoTab() {
         }
       }
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      // 🔴 28/09/2026 — quatro pessoas (Telma, Livia, Daniel, Edilene) relataram no mesmo dia
+      // "apertei e nada aconteceu", e `ponto.tentativa_falhou` tinha ZERO linhas. O registro de
+      // falha cobria câmera, GPS e cadastro — tudo que acontece ANTES da batida — e nunca o
+      // envio da batida em si. Era a única falha que as pessoas de fato encontram, e a única
+      // que não deixava rastro. Se o servidor respondeu, este aviso chega; se o sinal caiu de
+      // vez, a batida já foi para a fila do aparelho acima e este ramo não roda.
+      const httpSt = (e as { response?: { status?: number } })?.response?.status;
+      void registrarFalha(httpSt ? 'envio_recusado' : 'envio_sem_resposta', {
+        detalhe: `${proximoTipo} · HTTP ${httpSt ?? 'sem resposta'}${
+          typeof msg === 'string' ? ` · ${msg}` : ''
+        }`.slice(0, 400),
+      });
       setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar o ponto. Tente novamente.');
     } finally {
       setFase('idle');
@@ -1298,7 +1318,12 @@ function PontoTab() {
     if (!window.confirm('Não conseguiu bater pelo rosto? Vamos registrar sua batida para o DP validar — você não perde o ponto. Continuar?')) return;
     setFase('sending'); setBaterErro('');
     try {
-      const res = await api.post(`${PONTO_BASE}/batida-contingencia`, {});
+      // O corpo ia VAZIO — e o backend tinha `motivo` e agora tem `foto_base64`. Sem estas
+      // duas linhas o conserto do servidor nasceria dormente: porta aberta, ninguém entregando.
+      const res = await api.post(`${PONTO_BASE}/batida-contingencia`, {
+        foto_base64: fotoTentativa?.foto || undefined,
+        motivo: fotoTentativa?.motivo || 'nao_conseguiu_bater_pelo_rosto',
+      });
       setRostoFalhou(false);
       setResultado({ ok: true, contingencia: true, ...(res.data || {}) });
       await carregarHoje();
