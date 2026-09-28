@@ -39,13 +39,64 @@ def _safe(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", _norm(s))[:40]
 
 
-def classificar_pagamento(data_pg: date, ref: date, texto: str) -> tuple[str, str]:
-    """→ (document_type, rótulo). ref = 1º dia da competência."""
+#: Piso abaixo do qual um lançamento NÃO é remuneração de ninguém.
+#:
+#: 🔴 POR QUE EXISTE (28/09/2026, achado pela Pyetra). Ela recebeu do sistema um **RECIBO DE
+#: PAGAMENTO** nº AD-202609-215 dizendo:
+#:
+#:   «Recebi de CONECTAMAIS PATRIMONIAL LTDA … a importância de **R$ 0,01**, referente a
+#:    adiantamento salarial de 40% da competência 09/2026, pago via PIX, dando plena e geral
+#:    quitação quanto ao valor recebido.»
+#:
+#: O valor certo, medido no espelho da própria pessoa, é **R$ 668,00** — 40% de R$ 1.670,00.
+#:
+#: De onde veio o centavo: o extrato de setembro tem **104 lançamentos de R$ 0,01 entre 16 e
+#: 22/09** — os testes de chave PIX da campanha das 66 pessoas — e **43 de R$ 668,00 em 22/09**,
+#: que são os adiantamentos de verdade. O classificador casou o centavo.
+#:
+#: ⭐ E o motivo é a família de defeito mais cara desta casa: **a trava observava a coisa
+#: errada**. A regra olhava DATA e TEXTO e nunca o VALOR — num documento cujo propósito inteiro
+#: é o valor. Qualquer centavo que caísse entre os dias 14 e 26 virava "Adiantamento 40%".
+#:
+#: Palavras da Pyetra: *"Comprovantes de pagamento de 40% — apenas o Ruan está com o valor, o
+#: resto são os comprovantes de R$ 0,01."*
+#:
+#: ⚠️ O piso é deliberadamente BAIXO e grosseiro. Não tento adivinhar 40% do salário aqui: esta
+#: função é genérica, não conhece a pessoa, e uma régua fina erraria no meio-período e no
+#: rateio. R$ 50 separa "teste de chave" de "remuneração" sem precisar acertar o valor exato —
+#: e o que ela deixa passar continua conferível pelo humano, que é o ponto.
+VALOR_MINIMO_REMUNERACAO = 50.00
+
+
+def classificar_pagamento(
+    data_pg: date, ref: date, texto: str, valor: float | None = None
+) -> tuple[str, str]:
+    """→ (document_type, rótulo). ref = 1º dia da competência.
+
+    `valor` é opcional para não quebrar chamador antigo, mas **quem tem o valor deve passá-lo**:
+    sem ele a régua volta a decidir só por data, que é o defeito de 28/09.
+    """
     t = _norm(texto)
     if re.search(r"\bVT\b|VALE.?TRANSP", t):
         return "comprovante_vt", "VT"
     if re.search(r"\bVR\b|\bVA\b|VALE.?(REFEI|ALIMENT)", t):
         return "comprovante_vr", "VR"
+
+    # ⚠️ ANTES de qualquer régua de data: valor de centavo não é folha, nem adiantamento, nem
+    # saldo. Deixar isto depois da data foi o que gerou 170 recibos de R$ 0,01 com texto de
+    # quitação legal. Rótulo próprio para que o gerador de recibo NÃO o pegue.
+    if valor is not None and abs(float(valor)) < VALOR_MINIMO_REMUNERACAO:
+        return "comprovante_pagamento", "Transferência avulsa (não é remuneração)"
+
+    # 🔴 SEM VALOR, NÃO ROTULA COMO REMUNERAÇÃO. O parâmetro nasceu opcional para não quebrar
+    # chamador antigo — mas os DOIS que existem passam o valor, então o opcional só serviria
+    # para alguém futuro reintroduzir o defeito em silêncio. Aqui o desconhecido falha FECHADO:
+    # sem o valor, o documento não pode afirmar que é adiantamento de 40%.
+    if valor is None:
+        logger.warning("classificar_pagamento chamado SEM valor (%s, %s) — não rotulo como "
+                       "remuneração; quem chama precisa passar o valor", data_pg, texto[:60])
+        return "comprovante_pagamento", "Pagamento (valor não informado)"
+
     prox = (ref.replace(day=28) + timedelta(days=4)).replace(day=1)
     if data_pg >= prox:
         return "comprovante_pagamento", "Saldo 60% (folha)"
@@ -270,7 +321,9 @@ async def evento_pagamento_executado(db: AsyncSession, pagamento_id: str) -> dic
             return {**rel, "motivo": f"CPF {cpf[:3]}… não é de funcionário"}
         texto = f"{row[2]} {dest.get('descricao', '')} {dest.get('competencia', '')}"
         ref = competencia_do_pagamento(row[0], texto)
-        tipo, rotulo = classificar_pagamento(row[0], ref, texto)
+        # ⚠️ O VALOR vai junto: sem ele a régua decide só por data, que foi o defeito que
+        # gerou 170 recibos de R$ 0,01 com texto de quitação legal (ver VALOR_MINIMO_REMUNERACAO).
+        tipo, rotulo = classificar_pagamento(row[0], ref, texto, valor=row[1])
         ged_id = await ged_client_do_funcionario(db, emp[0])
         if not ged_id:
             return {**rel, "motivo": "funcionário sem cliente GED (alocação/posto)"}
@@ -334,7 +387,8 @@ async def preencher_comprovantes_reais(db: AsyncSession, kit_id: str, ref: date,
             rel["sem_pagamento"].append(info.get("nome") or e)
             continue
         for p in pags:
-            tipo, rotulo = classificar_pagamento(p["data"], ref, p["texto"])
+            # ⚠️ idem: o valor decide junto com a data (ver VALOR_MINIMO_REMUNERACAO).
+            tipo, rotulo = classificar_pagamento(p["data"], ref, p["texto"], valor=p.get("valor"))
             # 09/09/2026 (Jordan): "o comprovante de pagamento deve ser puxado via API do extrato do banco, não o
             # gerado pelo sistema". A linha do EXTRATO (bank_transactions, sincronizada do Inter/Cora) tem o
             # favorecido, o CPF e o endToEndId como o BANCO registrou — é ela que manda quando existe.
