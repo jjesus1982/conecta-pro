@@ -141,6 +141,22 @@ async def registrar_contingencia(db, employee_id: str, motivo: str,
 
     `quando` = hora que a PESSOA informou ("08:38"). Sem ela, carimba agora — o que só está
     certo quando a pessoa está no posto neste momento. Ver `_hora_informada`.
+
+    🔴 ARMADILHA MEDIDA EM 28/09/2026, 06:20 — CONFIRA O `tipo` QUE VOLTA.
+    `_proxima_batida_info` deriva o tipo da sequência **ATUAL** da pessoa. Isso é correto para o
+    caso normal («estou no posto agora e o app não abre») e **errado para lançamento de dia
+    passado**: às 06:20 de 28/09 eu lancei a SAÍDA da Erika referente a 27/09 19:00, e a função
+    devolveu `entrada` — porque a próxima batida que ela espera hoje é a entrada de um turno
+    novo. Gravei com o tipo errado e corrigi por `UPDATE` em seguida.
+
+    ⭐ É exatamente o defeito `TIPO_ERRADO` que responde por **12 dos 41** casos de jornada
+    aberta classificados na noite de 27–28/09 — saída gravada como entrada ou como
+    `saida_almoco`. A função que existe para consertar o ponto sabe produzi-lo.
+
+    ⚠️ Enquanto a derivação não for consciente da DATA do fato (tipo tirado do turno daquele dia,
+    não da sequência de hoje), **quem chama tem de conferir `r["tipo"]` antes de dar a coisa por
+    feita.** Funciona sem cuidado só quando `quando` cai no turno corrente — foi o caso do Daniel
+    e do Adeilson na mesma manhã, cujos turnos terminavam às 06:00 do próprio dia.
     """
     from modules.people_management.employee_portal.controllers.self_service_controller import (  # noqa: PLC0415
         _proxima_batida_info,
