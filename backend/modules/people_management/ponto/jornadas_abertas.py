@@ -40,6 +40,16 @@ logger = logging.getLogger(__name__)
 #: ⚠️ 24h é a janela que define "aberta". Acima disso o pareamento vira ficção: minha 1ª
 #: medição sem teto casou uma entrada com a saída de DIAS depois e devolveu jornadas de 156
 #: horas — número que parece escândalo e é artefato do pareador.
+#:
+#: 🔴 E FALTAVA A OUTRA PONTA (medido 28/09/2026, 00:55). Sem a guarda de "o turno já terminou",
+#: quem entrou às 19:00 num turno 19:00–07:00 **já contava como jornada aberta faltando seis
+#: horas para o fim**. Medido na hora: o conjunto pulou de 31 para 34 pessoas entre 18:50 e
+#: 00:55, e os três novos eram o noturno TRABALHANDO NORMALMENTE.
+#:
+#: O dano é duplo e nenhum dos dois é visível no verde: as cinco vagas por rodada do Hermes
+#: (prova cara) iam para gente sem problema, e o relatório diria à Pyetra que há anomalia em
+#: quem está no posto neste minuto. **Ausência de saída só é falta quando a saída já era
+#: devida** — antes disso é só o turno em andamento. Estado ≠ efeito.
 _SQL_ABERTAS = """
 SELECT e.id::text AS employee_id, e.nome, a.punch_id::text AS punch_id,
        to_char(a.punch_timestamp, 'DD/MM HH24:MI') AS entrada,
@@ -62,6 +72,25 @@ SELECT e.id::text AS employee_id, e.nome, a.punch_id::text AS punch_id,
       WHERE b.employee_id = a.employee_id AND b.punch_type = 'saida'
         AND b.punch_timestamp > a.punch_timestamp
         AND b.punch_timestamp < a.punch_timestamp + interval '24 hours')
+   AND (
+     -- ⭐ COM TURNO: só é "aberta" se o turno JÁ TERMINOU, com 2h de folga para a batida
+     -- atrasada. ⚠️ A virada de meia-noite entra aqui: quem entra 19:00 e sai 07:00 tem
+     -- `planned_end_time` MENOR que o início, e sem o `+1 day` o fim cairia no passado.
+     EXISTS (
+       SELECT 1 FROM shifts s
+        WHERE s.employee_id = a.employee_id AND s.is_active
+          AND s.shift_date = a.punch_timestamp::date
+          AND (s.shift_date + s.planned_end_time
+               + CASE WHEN s.planned_end_time <= s.planned_start_time
+                      THEN INTERVAL '1 day' ELSE INTERVAL '0' END)
+              < (now() AT TIME ZONE 'America/Manaus') - INTERVAL '2 hours')
+     -- SEM TURNO NA ESCALA (que é achado legítimo e frequente nesta casa): não há fim previsto
+     -- para comparar, então exijo 14h — mais que o turno mais longo daqui, que é 12h.
+     OR (NOT EXISTS (SELECT 1 FROM shifts s
+                      WHERE s.employee_id = a.employee_id AND s.is_active
+                        AND s.shift_date = a.punch_timestamp::date)
+         AND a.punch_timestamp < (now() AT TIME ZONE 'America/Manaus') - INTERVAL '14 hours')
+   )
  ORDER BY e.nome, a.punch_timestamp
 """
 
@@ -118,14 +147,28 @@ async def levantar(db, *, dias: int = 30) -> dict[str, Any]:
     return {"total": len(linhas), "pessoas": list(por_pessoa.values())}
 
 
-async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5) -> dict[str, Any]:
+async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5,
+                      pular: int = 0) -> dict[str, Any]:
     """Pede ao Hermes a causa de cada pessoa, com prova, e devolve a lista decidível.
 
     ⚠️ `teto_pessoas=5`, medido e não chutado. Com 10 pessoas o Hermes devolveu **resposta
     VAZIA depois de 590 segundos**: modelo de raciocínio gasta o orçamento pensando e não sobra
     para escrever — o mesmo defeito que em 25/09 matou o loop de aprendizado desta casa com um
-    `max_tokens=300`. Cinco cabem com folga, e a sobra vai na próxima rodada, DITA no retorno.
-    ⭐ Prova cara que não chega é prova que não existe.
+    `max_tokens=300`. Cinco cabem com folga. ⭐ Prova cara que não chega é prova que não existe.
+
+    🔴 `pular` EXISTE PORQUE O TETO SEM DESLOCAMENTO MENTIA (27/09/2026). Eu escrevia
+    `pessoas[:teto_pessoas]` — sempre os **primeiros cinco por nome** — e o texto dizia «+26
+    pessoa(s) ficaram para a próxima rodada». **Não havia próxima rodada:** rodar de novo
+    reclassificava as mesmas cinco pessoas, e as outras 26 eram inalcançáveis por construção.
+
+    ⭐ É a mesma família de defeito que me pegou quatro vezes em 27/09: **uma frase nossa
+    prometendo uma garantia que o código não dá** (o campo `conferi`, o `_CONFIRMA` que jurava
+    capturar compromisso, o docstring do «gate humano», e este). Teto que corta é honesto; teto
+    que corta anunciando continuação inexistente é pior que corte silencioso, porque desliga a
+    desconfiança de quem lê.
+
+    Uso: `pular=0`, depois `pular=5`, `pular=10`… A ordem é estável (`ORDER BY e.nome`), então o
+    deslocamento cobre o conjunto sem repetir nem pular ninguém.
     """
     import json as _j
 
@@ -140,7 +183,15 @@ async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5) -> dict[str,
     if not pessoas:
         return {"ok": True, "total": 0, "pessoas": 0, "rascunho": None}
 
-    alvo, sobra = pessoas[:teto_pessoas], max(0, len(pessoas) - teto_pessoas)
+    # ⚠️ `pular` antes do teto: sem ele o corte sempre devolvia as mesmas 5 primeiras.
+    _ini = max(0, int(pular or 0))
+    alvo = pessoas[_ini:_ini + teto_pessoas]
+    sobra = max(0, len(pessoas) - (_ini + len(alvo)))
+    if not alvo:
+        return {"ok": True, "total": dados["total"], "pessoas": len(pessoas),
+                "classificadas": 0, "sobra": 0, "rascunho": None,
+                "texto": None, "fim_da_fila": True,
+                "msg": f"«pular={_ini}» já passou do fim: são {len(pessoas)} pessoa(s)"}
     bloco = "\n\n".join(
         f"{p['nome']} — {len(p['casos'])} jornada(s) aberta(s):\n" + "\n".join(
             f"   · entrada {c['entrada']} ({c['device']})"
@@ -188,7 +239,10 @@ async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5) -> dict[str,
         linhas.append("")
     if sobra:
         # ⚠️ NUNCA cortar em silêncio: "cobri tudo" mentiroso é pior que "cobri 12 de 24".
-        linhas.append(f"⚠️ *+{sobra}* pessoa(s) ficaram para a próxima rodada.")
+        # ⚠️ Diz o QUE FALTA e COMO alcançar. A versão anterior prometia «próxima rodada» que
+        # não existia — o corte era sempre nos 5 primeiros nomes e o resto era inalcançável.
+        linhas.append(f"⚠️ *+{sobra}* pessoa(s) ainda não analisadas "
+                      f"(vistas {_ini + len(alvo)} de {len(pessoas)}).")
 
     r = await criar_rascunho(
         db, None, tipo="pendencia_ponto", modulo="ponto",
@@ -201,9 +255,12 @@ async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5) -> dict[str,
         gate="🟡", requires_otp=False, roles_aprovador=("admin", "gerente_operacional"),
         idempotency_key=None)
 
-    logger.info("jornadas_abertas: %s abertas, %s pessoa(s) classificada(s), sobra %s",
-                dados["total"], len(itens), sobra)
+    logger.info("jornadas_abertas: %s abertas, %s pessoa(s) classificada(s), pular=%s sobra %s",
+                dados["total"], len(itens), _ini, sobra)
+    # ⭐ `proximo_pular` é o que torna a continuação REAL e não uma promessa: quem chamou recebe
+    # exatamente o valor com que retomar, e `fim_da_fila` diz quando parar.
     return {"ok": True, "total": dados["total"], "pessoas": len(pessoas),
             "classificadas": len(itens), "sobra": sobra,
+            "pular": _ini, "proximo_pular": _ini + len(alvo), "fim_da_fila": sobra == 0,
             "por_causa": {k: len(v) for k, v in por_causa.items()},
             "rascunho": (r or {}).get("draft_id"), "texto": "\n".join(linhas)}
