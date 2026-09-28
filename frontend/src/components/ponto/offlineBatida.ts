@@ -135,6 +135,19 @@ export async function apagarBiometria(): Promise<void> {
 /** É erro de REDE (vale guardar offline) ou o servidor respondendo (não vale)? */
 export function ehFalhaDeRede(e: unknown): boolean {
   const err = e as { response?: { status?: number }; code?: string; message?: string };
-  if (err?.response?.status) return false; // o servidor respondeu: 4xx/5xx não é falta de sinal
+  const st = err?.response?.status;
+  // 🔴 28/09/2026 — 502 NÃO É RECUSA. Medido: das 13:00 às 13:02 o backend ficou fora e o nginx
+  // devolveu 502 a 205 requisições, 72 delas batidas de ponto, de 4 pessoas — as mesmas quatro
+  // que disseram "apertei e nada aconteceu" (Telma, Livia, Daniel, Edilene), no minuto de maior
+  // movimento do dia, a volta do almoço.
+  //
+  // ⭐ Estes códigos vêm do NGINX, não do aplicativo: significam que a batida nunca foi vista.
+  // A consequência é idêntica à de não haver sinal, então guardar no aparelho não contorna
+  // recusa nenhuma — recusar é que apaga um fato que aconteceu de verdade.
+  //
+  // 504 fica FORA de propósito: ali o nginx desistiu de esperar e o aplicativo pode ter
+  // gravado a batida. Guardar offline nesse caso duplicaria o ponto da pessoa.
+  if (st === 502 || st === 503) return true;
+  if (st) return false; // o aplicativo respondeu: 4xx e 5xx dele são decisão, não falta de sinal
   return true;
 }
