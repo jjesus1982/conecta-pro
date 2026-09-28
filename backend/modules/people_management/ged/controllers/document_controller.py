@@ -10,6 +10,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -253,9 +254,17 @@ async def sign_document(
 async def download_document(
     document_id: str,
     current_user: CurrentActiveUser,
+    download: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Download do arquivo de um documento."""
+    """Abre (inline) ou baixa o arquivo de um documento de kit. `?download=1` = baixar.
+
+    28/09/2026 — a Pyetra conferia documentação baixando: a rota devolvia SEMPRE
+    `Content-Disposition: attachment` (medido por curl: `attachment; filename*=utf-8''...`),
+    então cada conferência virava um arquivo na pasta de Downloads. Agora o default é
+    `inline`, e `?download=1` (que o `frontend/src/lib/pdf.ts:9` só manda no botão de baixar)
+    volta a `attachment`.
+    """
     result = await db.execute(select(KitDocument).where(KitDocument.id == document_id))
     doc = result.scalar_one_or_none()
     if not doc:
@@ -289,24 +298,38 @@ async def download_document(
             detail=f"PDF nao encontrado em disco: {Path(full_path).name}",
         )
 
-    # Registrar log de acesso
+    # Registrar log de acesso. Esta linha gravava `downloaded` em TODO acesso, porque a rota não
+    # tinha como distinguir abrir de baixar. Medido em 28/09/2026: `ged_kit_access_logs` tinha 38
+    # `downloaded` e 12 `viewed` — e quem só ABRIU para conferir entrava nos 38, registrado como
+    # quem levou o arquivo embora. É exatamente o que uma trilha de acesso LGPD não pode mentir.
+    # `viewed` já era valor aceito pela coluna, faltava alguém mandar.
     export_svc = ExportService(db)
     await export_svc.log_access(
         kit_id=str(doc.kit_id),
-        action="downloaded",
+        action="downloaded" if download else "viewed",
         actor_type="internal",
         actor_id=str(current_user.id),
         actor_name=getattr(current_user, "full_name", None) or str(current_user.id),
         ip=None,
         user_agent=None,
-        notes=f"Download documento: {doc.document_name}",
+        notes=f"{'Download' if download else 'Visualização'} documento: {doc.document_name}",
     )
     await db.commit()
 
+    # `filename=` do FileResponse emite `attachment` — é ele que forçava o download. Molde do
+    # inline: modules/signatures/controllers/signature_controller.py:274. Aqui vai com
+    # `filename*=utf-8''` porque o nome real tem acento e travessão ("Comprovante de Pagamento de
+    # Salário — ..."): header em latin-1 com o nome cru derruba a resposta com 500.
+    # ponytail: serve o mime_type do registro como está — os 138 `text/html` do acervo são
+    # folhas de ponto GERADAS pelo sistema. Se um dia o upload aceitar HTML de fora, virar
+    # allowlist de mime aqui (pdf/png/jpeg/html-nosso) e attachment para o resto.
+    _nome = quote(os.path.basename(full_path))
     return FileResponse(
         path=str(_target),
-        filename=os.path.basename(full_path),
-        media_type="application/pdf",
+        media_type=doc.mime_type or "application/pdf",
+        headers={
+            "Content-Disposition": f"{'attachment' if download else 'inline'}; filename*=utf-8''{_nome}"
+        },
     )
 
 

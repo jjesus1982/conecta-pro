@@ -6,6 +6,7 @@ Ver o comentário em `_visao()` para os números que motivaram.
 
 import asyncio
 import logging
+import os
 from datetime import date, datetime
 
 from modules.operacional.controllers.redesign_data_controller import (
@@ -17,6 +18,68 @@ from modules.operacional.controllers.redesign_data_controller import (
     doc,
     t,
 )
+
+# Espelho FECHADO de `modules/gedeon/services/consultor_service.py:24`
+# (AREAS_VALIDAS = {montagem, checklist, intercorrencias, folha}). Existe como constante única
+# porque DOIS forms deste arquivo mandam `area` para o mesmo validador — duplicar a lista era
+# como as duas divergirem do backend ao mesmo tempo. Mudou lá? muda aqui, e o oráculo
+# test_oraculo_area_consultor_gedeon.py fica vermelho até alguém mudar.
+_AREAS_GEDEON = [
+    ("montagem", "Montagem do kit"),
+    ("checklist", "Checklist do kit"),
+    ("intercorrencias", "Intercorrências do mês"),
+    ("folha", "Folha da competência"),
+]
+_CAMPOS_AREA_GEDEON = [
+    {
+        "key": "area",
+        "label": "Área*",
+        "type": "select",
+        "span": "span 1",
+        "value": "checklist",  # o ModuleView semeia o estado com `value` — sem isto o select abre vazio
+        "options": [{"value": v, "label": lbl} for v, lbl in _AREAS_GEDEON],
+    }
+]
+
+
+def _chip_ver_documento(doc_id, file_path, mime_type, nome=None) -> list:
+    """Chip «Ver documento» de UMA linha de `ged_kit_documents` — habilitado só quando abre.
+
+    Medido em 28/09/2026 sobre os 6.024 documentos da tabela, e é a razão de o chip ser
+    condicional em vez de otimista (chip que promete e dá erro custa mais que chip cinza):
+
+      · 3.365 caminho local que EXISTE em disco  → abre
+      ·   430 caminho local que NÃO existe (416 relativos resolvidos contra GED_STORAGE_BASE
+              =/opt/conecta-pro/storage/ged, diretório que não existe nem no contêiner nem no
+              host, + 14 absolutos apagados) → cinza
+      · 1.862 sem `file_path` (registro existe, arquivo nunca chegou) → cinza
+      ·   323 URL do Google Drive → cinza: a rota responde 307 e o `fetch` com Bearer do
+              `lib/pdf.ts` morre no CORS do redirect cross-origin
+      ·    44 `/inter/*` (comprovante bancário) → cinza, vai pelo Financeiro
+
+    `fmt` sai do mime REAL: 138 destes documentos são `text/html` (folha de ponto gerada), e
+    prometer PDF para eles seria a mesma mentira em outra ponta.
+    """
+    from modules.people_management.ged.services.document_collector_service import GED_STORAGE_BASE
+
+    url = f"/api/v1/people-management/ged/documents/{doc_id}/download"
+    fp = (file_path or "").strip()
+    if not fp:
+        return [doc("Ver documento", disabled=True, motivo="Sem arquivo: o registro existe, o arquivo não")]
+    if fp.startswith(("http://", "https://")):
+        onde = "no Google Drive" if "google" in fp else "em URL externa"
+        return [doc("Ver documento", disabled=True, motivo=f"Está {onde} — abra pela pasta do kit")]
+    if fp.startswith("/inter/"):
+        return [doc("Ver documento", disabled=True, motivo="Comprovante bancário: abra pelo Financeiro (Inter)")]
+    if not os.path.isfile(fp if os.path.isabs(fp) else os.path.join(GED_STORAGE_BASE, fp)):
+        return [doc("Ver documento", disabled=True, motivo="Arquivo não está no disco deste servidor")]
+    ext = "html" if (mime_type or "") == "text/html" else "pdf"
+    # `filename` porque o botão "Baixar" do DocButtons vira `a.download=doc.filename` e, sem ele,
+    # o blob: URL salva com nome aleatório — o arquivo chega na pasta da Pyetra sem dizer o que é.
+    # a "/" sai porque o nome real traz competência ("Comprovante PIX Folha 08/2026") e barra em
+    # nome de arquivo é o navegador quem resolve — cada um de um jeito
+    limpo = (nome or "documento")[:80].replace("/", "-")
+    return [doc("Ver documento", url, fmt=ext, mode="blob", filename=f"{limpo}.{ext}")]
 
 
 def _blocos_do_contrato() -> dict:
@@ -328,18 +391,25 @@ async def build(db) -> dict:
         }
 
     await safe("visao", _visao())
-    # Arquivos (ged_kit_documents) — SEM download por-doc: a rota /ged/documents/{id}/download
-    # serve ged_documents (tabela VAZIA), não ged_kit_documents. Download real = ZIP do kit (abaixo).
-    # Gap registrado na MATRIZ: falta rota servindo ged_kit_documents.file_path por-doc (759 têm arquivo).
+    # Arquivos (ged_kit_documents) — com "Ver documento" por LINHA.
+    # O comentário que ficou aqui até 28/09/2026 dizia «SEM download por-doc: a rota serve
+    # ged_documents (tabela VAZIA)» e foi a razão de a coluna ficar desligada por um mês. Era
+    # FALSO: existem DUAS rotas de download de documento, e o comentário olhou a errada.
+    #   · /api/v1/ged/documents/{id}/download  → modules/ged/.../document_controller.py, esta sim
+    #     faz select(GedDocument) sobre ged_documents (vazia).
+    #   · /api/v1/people-management/ged/documents/{id}/download → modules/people_management/ged/
+    #     .../document_controller.py:259 faz select(KitDocument), e kit_document.py:133 aponta
+    #     para `ged_kit_documents`. É esta que a tela usa, e ela sempre esteve no ar.
     await safe(
         "arquivos",
         tbl(
             "Arquivos",
-            f"{n_ged} documentos",
+            f"{n_ged} documentos · «Ver documento» abre na tela (sem baixar ZIP de 43 para olhar um)",
             "Enviar documento",
             ["Documento", "Tipo", "Colaborador", "Assinado"],
             "2fr 1.4fr 1.6fr 0.9fr",
-            "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed "
+            "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed, "
+            "g.id, g.file_path, g.mime_type "
             "FROM ged_kit_documents g LEFT JOIN employees e ON e.id=g.employee_id ORDER BY g.created_at DESC NULLS LAST LIMIT 200",
             lambda r: [
                 t(r[0], 600, "#0F1B3A"),
@@ -347,6 +417,7 @@ async def build(db) -> dict:
                 t(r[2]),
                 b("Assinado", "ok") if r[3] else b("Pendente", "warn"),
             ],
+            docsfn=lambda r: _chip_ver_documento(r[4], r[5], r[6], r[0]),
         ),
     )
 
@@ -465,7 +536,13 @@ async def build(db) -> dict:
             "showResult": True,
         },
         "fields": [
-            {"key": "area", "label": "Área*", "type": "text", "span": "span 1", "ph": "Ex.: folha, documentos, kit"},
+            # `area` é lista FECHADA no backend: gedeon/services/consultor_service.py:24
+            # AREAS_VALIDAS = {montagem, checklist, intercorrencias, folha}. Era texto livre com
+            # placeholder "Ex.: folha, documentos, kit" — DOIS dos três valores sugeridos eram
+            # recusados. Medido em 28/09 contra o container: {"area":"documentos"} → HTTP 422
+            # "Área inválida 'documentos'. Válidas: checklist, folha, intercorrencias, montagem";
+            # {"area":"kit"} → HTTP 422 igual. Select com os 4 valores reais + default checklist.
+            *_CAMPOS_AREA_GEDEON,
             {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
             {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1", "ph": "AAAA-MM"},
             {
@@ -632,18 +709,28 @@ async def build(db) -> dict:
         "no acervo — é lido para responder.",
         "cta": "Analisar",
         "type": "form",
-        # multipart + query: o ARQUIVO vai no corpo, os demais campos na URL. Foi para isto
-        # que o submit.query passou a valer também no caminho multipart.
+        # SEM `query`: a rota declara os campos como `Form(...)` (consultor_controller.py:77-80),
+        # e `Form` lê SÓ o corpo multipart. Com `query: True` o ModuleView punha area/pergunta na
+        # URL e NÃO no FormData (ModuleView.tsx:743 pula o append quando há query) — o backend caía
+        # nos defaults e devolvia HTTP 200, então ninguém percebia. Medido em 28/09 contra o
+        # container, mesmo arquivo nos dois casos:
+        #   · `?area=documentos&pergunta=quantas+faltas`  → HTTP 200, e a linha gravada em
+        #     gedeon_consultas veio area='checklist' (default do Form) com
+        #     pergunta='Analise este documento no contexto do fechamento do kit.' — a pergunta
+        #     da Pyetra foi DESCARTADA em silêncio.
+        #   · `-F area=checklist -F pergunta='quantas faltas'` → HTTP 200 e a linha gravada
+        #     preservou a pergunta dela.
+        # Com os campos no corpo o validador de `area` volta a ser alcançável (era inalcançável
+        # por este form: `-F area=documentos` dá 422, `?area=documentos` não dava).
         "submit": {
             "endpoint": "/api/v1/gedeon/consultor/perguntar-arquivo",
             "multipart": True,
-            "query": True,
             "okMsg": "Análise concluída",
             "showResult": True,
         },
         "fields": [
             {"key": "arquivo", "label": "Arquivo*", "type": "file", "span": "span 2"},
-            {"key": "area", "label": "Área*", "type": "text", "span": "span 1", "ph": "Ex.: folha, documentos"},
+            *_CAMPOS_AREA_GEDEON,
             {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
             {"key": "competencia", "label": "Competência", "type": "text", "span": "span 1", "ph": "AAAA-MM"},
             {"key": "pergunta", "label": "Pergunta*", "type": "textarea", "span": "span 2"},
@@ -1336,14 +1423,28 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
         _log.warning("ged-coleta: %s", exc)
-    try:  # POST /gedeon/cnd/emitir + POST /gedeon/cnd/upload (decisão do dono 07/09: certidões só da Patrimonial)
-        emp = (
-            await db.execute(_T("SELECT cnpj, razao_social FROM empresas WHERE slug='conecta_patrimonial' LIMIT 1"))
-        ).first()
-        cnpj = emp[0] if emp else ""
+    try:  # POST /gedeon/cnd/emitir + POST /gedeon/cnd/upload
+        # DEFEITO MEDIDO 28/09/2026 — o formulário oferecia uma palavra que o validador recusa:
+        # este form mandava document_type="federal"/"caixa", mas gedeon/cnd_controller.py:169 faz
+        # `if document_type not in PORTAL_OFICIAL` e as CHAVES de PORTAL_OFICIAL (:32-42) são
+        # "certidao_negativa_federal"/"certidao_negativa_fgts" → 2 de 2 envios do payload antigo
+        # davam HTTP 400 "document_type inválido p/ upload manual"; 2 de 2 do novo passam (medido
+        # chamando a validação e o endpoint com PDF de teste). Confirmação cruzada: :174 faz
+        # {v: k for k, v in DOCTYPE.items()}.get(document_type) — só resolve recebendo o doctype.
+        # 2º defeito: o CNPJ vinha FIXO da Patrimonial (WHERE slug='conecta_patrimonial'), e a
+        # certidão que falta é a da ELETRÔNICA — 35710481000103, FGTS venceu em 2026-09-17
+        # (-11 dias na medição), enquanto a da Patrimonial estava válida. A tela não alcançava o
+        # único caso que importava. Certidão é POR CNPJ → select das duas, sem default.
+        from modules.gedeon.controllers.cnd_controller import PORTAL_OFICIAL  # leitura (arquivo de outro dono)
+
+        empresas = (
+            await db.execute(_T("SELECT cnpj, razao_social FROM empresas ORDER BY razao_social"))
+        ).all()
+        opc_empresa = [{"value": e[0], "label": f"{e[1]} — {e[0]}"} for e in empresas]
+        links = " · ".join(f"{v['nome']}: {v['url']}" for v in PORTAL_OFICIAL.values())
         out["cnd-emitir"] = {
             "title": "Certidões — emitir pelo robô",
-            "sub": f"Enfileira a emissão para o robô (SEFAZ-AM, CNDT, Prefeitura). Federal e Caixa são manuais: emita no portal e suba o PDF ao lado. Empresa: {emp[1] if emp else '—'}.",
+            "sub": "Enfileira a emissão para o robô (SEFAZ-AM, CNDT, Prefeitura). Federal e Caixa são manuais: emita no portal e suba o PDF ao lado. Escolha a empresa — a certidão é por CNPJ.",
             "cta": "Emitir",
             "type": "form",
             "submit": {
@@ -1352,7 +1453,7 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                 "showResult": True,
             },
             "fields": [
-                {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                selecionar("cnpj", "Empresa (CNPJ)*", opc_empresa, "span 1"),
                 {
                     "key": "portais",
                     "label": "Portais",
@@ -1371,7 +1472,12 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
         }
         out["cnd-upload"] = {
             "title": "Certidões — subir PDF emitido manualmente",
-            "sub": "Federal (RFB/PGFN) e FGTS (Caixa) não têm robô: suba o PDF e a validade é lida do próprio documento.",
+            "sub": (
+                "Federal (RFB/PGFN) e FGTS (Caixa) não têm robô: emita no portal oficial, suba o PDF aqui "
+                "e a validade é lida do próprio documento. Portais — "
+                + links
+                + " (a página da Caixa abre com o CNPJ da Eletrônica preenchido; para a Patrimonial, troque o CNPJ na própria página)."
+            ),
             "cta": "Enviar",
             "type": "form",
             "submit": {
@@ -1384,13 +1490,14 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                 selecionar(
                     "document_type",
                     "Tipo*",
-                    [
-                        {"value": v, "label": l}
-                        for v, l in (("federal", "Federal — RFB/PGFN"), ("caixa", "FGTS — Caixa"))
-                    ],
+                    # value = a CHAVE de PORTAL_OFICIAL (o que o validador aceita); label = legível
+                    [{"value": k, "label": l} for k, l in (
+                        ("certidao_negativa_federal", "Federal — RFB/PGFN"),
+                        ("certidao_negativa_fgts", "FGTS — Caixa"),
+                    )],
                     "span 1",
                 ),
-                {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                selecionar("cnpj", "Empresa (CNPJ)*", opc_empresa, "span 1"),
                 {"key": "file", "label": "PDF da certidão*", "type": "file", "span": "span 2"},
             ],
         }
@@ -1504,11 +1611,12 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
     try:  # GET /ged/kits/{kit_id} — documentos por kit, por SQL (a rota fica redundante)
         out["kit-documentos"] = await tbl(
             "Documentos por kit",
-            f"{await _n('SELECT count(*) FROM ged_kit_documents')} documentos em kits · últimos 300 · fonte: ged_kit_documents × ged_document_kits",
+            f"{await _n('SELECT count(*) FROM ged_kit_documents')} documentos em kits · últimos 300 · «Ver documento» abre na tela · fonte: ged_kit_documents × ged_document_kits",
             "—",
             ["Kit", "Colaborador", "Documento", "Tipo", "Assinado", "Gerado em"],
             "0.8fr 1.8fr 2fr 1fr 0.8fr 0.9fr",
-            "SELECT to_char(k.reference_month,'MM/YYYY'), coalesce(e.nome, d.employee_id::text, '—'), coalesce(d.document_name,'—'), coalesce(d.document_type,'—'), coalesce(d.is_signed,false), d.created_at "
+            "SELECT to_char(k.reference_month,'MM/YYYY'), coalesce(e.nome, d.employee_id::text, '—'), coalesce(d.document_name,'—'), coalesce(d.document_type,'—'), coalesce(d.is_signed,false), d.created_at, "
+            "d.id, d.file_path, d.mime_type "
             "FROM ged_kit_documents d LEFT JOIN ged_document_kits k ON k.id=d.kit_id LEFT JOIN employees e ON e.id=d.employee_id ORDER BY d.created_at DESC LIMIT 300",
             lambda r: [
                 t(r[0] or "—", 600, "#0F1B3A"),
@@ -1518,6 +1626,7 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
                 b("Sim" if r[4] else "Não", "ok" if r[4] else "mut"),
                 t(_fd(r[5])),
             ],
+            docsfn=lambda r: _chip_ver_documento(r[6], r[7], r[8], r[2]),
         )
     except Exception as exc:  # noqa: BLE001
         await db.rollback()

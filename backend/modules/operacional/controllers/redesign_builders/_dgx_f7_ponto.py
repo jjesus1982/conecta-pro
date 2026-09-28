@@ -702,7 +702,8 @@ def _tela_cartao_lote(op: dict) -> dict:
         "sub": (
             "Um PDF com o espelho de cada colaborador da competência, no mesmo padrão-ouro do espelho individual. "
             "Quem não tem espelho CALCULADO no mês fica de fora e é listado na resposta — nada é fabricado. "
-            "Calcule o mês na aba «Espelho: calcular/fechar» antes."
+            "Calcule o mês na aba «Espelho: calcular/fechar» antes. "
+            "Escolha os colaboradores (Ctrl/Shift para vários) ou deixe vazio para todos do filtro."
         ),
         "cta": "Gerar PDF",
         "type": "form",
@@ -718,6 +719,16 @@ def _tela_cartao_lote(op: dict) -> dict:
                 "type": "text",
                 "span": "span 1",
                 "value": f"{hoje.month:02d}/{hoje.year}",
+            },
+            # 28/09/2026: o form não tinha como escolher pessoa — o lote saía com TODOS (medido:
+            # 53 espelhos, 14.283.110 bytes, 23,0 s). `multiselect` não é tipo novo: ModuleView.tsx
+            # (linhas 1013 e 399) já renderiza <select multiple> e manda a seleção como LISTA JSON.
+            {
+                "key": "colaboradores",
+                "label": "Colaboradores (vazio = todos do filtro)",
+                "type": "multiselect",
+                "span": "span 2",
+                "options": op["colaborador"],
             },
             {
                 "key": "condominio",
@@ -1081,11 +1092,27 @@ async def rd_feriado_remover(
     return {"ok": True, "message": "Feriado removido (inativado). Limpe o cache da CCT se a folha já o tiver lido."}
 
 
+def _ids_lote(v) -> list[str] | None:
+    """Seleção de colaboradores → lista de ids, ou None quando ela não escolheu ninguém.
+
+    28/09/2026: o front `multiselect` manda LISTA (ModuleView.corpoComJson faz JSON.parse); o
+    Hermes/curl manda string separada por vírgula. Os dois formatos existem, então conte os dois
+    antes de padronizar. `None` = sem seleção = todos do filtro (comportamento de hoje); lista
+    vazia NUNCA volta como None, porque devolver as 53 quando ela pediu 2 seria mentir.
+    """
+    if v is None:
+        return None
+    itens = v if isinstance(v, (list, tuple, set)) else str(v).split(",")
+    ids = [s for s in (str(x).strip() for x in itens) if s]
+    return ids or None
+
+
 def _filtros_lote(payload: dict) -> dict:
     ano, mes = _competencia(payload.get("competencia"))
     return {
         "ano": ano,
         "mes": mes,
+        "ids": _ids_lote(payload.get("colaboradores")),
         "cond": str(payload.get("condominio") or "").strip() or None,
         "funcao": str(payload.get("funcao") or "").strip() or None,
         "apenas_com_ponto": bool(_bool(payload.get("apenas_com_ponto"))),
@@ -1109,10 +1136,31 @@ async def rd_cartao_lote(
                 "AND (lower(coalesce(e.status,''))='ativo' OR (CAST(:dem AS boolean) AND lower(coalesce(e.status,''))='demitido')) "
                 "AND (CAST(:cond AS text) IS NULL OR e.cliente_id = (SELECT c.client_id FROM condominios c WHERE c.id::text=CAST(:cond AS text))) "
                 "AND (CAST(:funcao AS text) IS NULL OR upper(coalesce(e.cargo,''))=upper(CAST(:funcao AS text)))"
+                # 28/09/2026: a contagem tinha de ganhar o MESMO filtro de seleção que `candidatos()`,
+                # senão a mensagem prometia "53 de 53" e o PDF vinha com 2 — as duas pontas medindo
+                # coisas diferentes. `string_to_array` porque :ids viaja como texto (a mesma string
+                # que vai na query do GET).
+                "AND (CAST(:ids AS text) IS NULL OR e.id::text = ANY(string_to_array(CAST(:ids AS text), ',')))"
             ),
-            {"m": f["mes"], "a": f["ano"], "dem": f["demitidos"], "cond": f["cond"], "funcao": f["funcao"]},
+            {
+                "m": f["mes"],
+                "a": f["ano"],
+                "dem": f["demitidos"],
+                "cond": f["cond"],
+                "funcao": f["funcao"],
+                "ids": ",".join(f["ids"]) if f["ids"] else None,
+            },
         )
     ).one()
+    # Seleção que não casa com os outros filtros NÃO pode virar "todos": diz que não casou.
+    if f["ids"] and not n_cand:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Nenhum dos {len(f['ids'])} colaborador(es) selecionado(s) passa pelos outros filtros "
+                f"(condomínio/função/demitidos) — o lote sairia vazio, não com todos. Revise a seleção."
+            ),
+        )
     if not n_com:
         raise HTTPException(
             status_code=400,
@@ -1124,6 +1172,7 @@ async def rd_cartao_lote(
     qs = (
         f"?condominio={f['cond'] or ''}&funcao={f['funcao'] or ''}&apenas_com_ponto={int(f['apenas_com_ponto'])}"
         f"&incluir_demitidos={int(f['demitidos'])}&detalhes={int(f['detalhes'])}"
+        f"&colaboradores={','.join(f['ids']) if f['ids'] else ''}"
     )
     return {
         "ok": True,
@@ -1153,6 +1202,7 @@ async def rd_cartao_lote_get(
     apenas_com_ponto: int = 0,
     incluir_demitidos: int = 0,
     detalhes: int = 1,
+    colaboradores: str = "",
 ):
     from fastapi.responses import Response
     from starlette.concurrency import run_in_threadpool
@@ -1162,16 +1212,33 @@ async def rd_cartao_lote_get(
     if not 1 <= mes <= 12:
         raise HTTPException(status_code=400, detail="Mês inválido.")
 
+    # 28/09/2026: esta rota MONTA o PDF e refazia a lista sozinha — filtrar só no POST deixaria
+    # o link gerando as 53 de novo (as duas pontas). `colaboradores` vazio = None = todos.
+    pedidos = _ids_lote(colaboradores)
+
     def _montar():
         with SyncSessionLocal() as s:
             ids = [
-                i for i, _n in cartao_lote.candidatos(s, condominio or None, funcao or None, bool(incluir_demitidos))
+                i
+                for i, _n in cartao_lote.candidatos(
+                    s, condominio or None, funcao or None, bool(incluir_demitidos), pedidos
+                )
             ]
             return cartao_lote.montar_cartao_lote(
                 s, mes, ano, ids, apenas_com_ponto=bool(apenas_com_ponto), detalhes=bool(detalhes)
             )
 
     pdf, relato = await run_in_threadpool(_montar)
+    # `relato` tem uma entrada por id PEDIDO: vazio com seleção = a seleção não casou com os
+    # outros filtros. Dizer isso, nunca devolver o lote inteiro como se fosse o pedido dela.
+    if pedidos and not relato:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Nenhum dos {len(pedidos)} colaborador(es) selecionado(s) passa pelos outros filtros "
+                "(condomínio/função/demitidos). Nada foi gerado — revise a seleção."
+            ),
+        )
     if not pdf:
         raise HTTPException(status_code=404, detail=f"Ninguém do filtro tem espelho calculado em {mes:02d}/{ano}.")
     return Response(

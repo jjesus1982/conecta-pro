@@ -29,13 +29,32 @@ SELECT e.id::text, e.nome
 """
 
 
-def candidatos(db, condominio_id: str | None, funcao: str | None, incluir_demitidos: bool) -> list[tuple[str, str]]:
-    """(id, nome) de quem entra no lote pelos filtros — antes de olhar se tem espelho."""
+def candidatos(
+    db,
+    condominio_id: str | None,
+    funcao: str | None,
+    incluir_demitidos: bool,
+    employee_ids: list[str] | None = None,
+) -> list[tuple[str, str]]:
+    """(id, nome) de quem entra no lote pelos filtros — antes de olhar se tem espelho.
+
+    28/09/2026 — `employee_ids` (a seleção da tela) existe porque este era o único lugar que
+    decidia "quem entra no lote" e ele ignorava escolha nenhuma: a tela em lote mandava
+    competência + condomínio + função e o PDF saía com TODOS os candidatos — medido: 53
+    espelhos, 14.283.110 bytes, 23,0 s, sempre os mesmos 53. Filtro aqui, e não no chamador,
+    porque `montar_cartao_lote` já recebe a lista pronta e este é o choke point de todos os
+    chamadores. Seleção é INTERSEÇÃO com os outros filtros (quem foi escolhido mas não passa
+    pelo condomínio/função NÃO entra) e lista vazia devolve lista vazia — cabe ao chamador
+    dizer isso, nunca cair de volta para todos.
+    """
     rows = db.execute(
         text(_SQL_CANDIDATOS),
         {"cond": condominio_id or None, "funcao": (funcao or "").strip() or None, "demitidos": bool(incluir_demitidos)},
     ).all()
-    return [(r[0], r[1]) for r in rows]
+    if employee_ids is None:
+        return [(r[0], r[1]) for r in rows]
+    alvo = {str(x).strip() for x in employee_ids if str(x).strip()}
+    return [(r[0], r[1]) for r in rows if r[0] in alvo]
 
 
 def montar_cartao_lote(

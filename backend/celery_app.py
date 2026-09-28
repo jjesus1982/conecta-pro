@@ -38,6 +38,7 @@ app = Celery(
         "modules.bidding.tasks",
         "modules.people_management.sst.tasks",
         "modules.people_management.ged.tasks",
+        "modules.people_management.hr.tasks.espelho_recalculo_task",
         "modules.health_occupational.tasks",
         "modules.gedeon.tasks.kronos_tasks",
         "modules.gedeon.tasks.orquestrador_tasks",
@@ -253,6 +254,25 @@ app.conf.beat_schedule = {
     "ponto-triagem-hermes": {
         "task": "ponto.triagem_hermes",
         "schedule": crontab(hour=8, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── 28/09/2026 · ESPELHO DO MÊS CORRENTE, todo dia às 05:40 (antes do resumo das 08:00 e
+    #    da triagem das 08:30, para que ambos leiam número fresco).
+    #
+    #    🔴 Medido no dia: 51 dos 55 espelhos de 09/2026 estavam parados em **14/09**, com a
+    #    última batida da casa em 28/09. `calcular_espelho` não tinha beat nenhum — só rodava
+    #    quando alguém fechava o mês ou abria o Meu Espaço. Quem não abria o portal ficava com
+    #    o espelho envelhecendo até o fim do mês.
+    #
+    #    ⚠️ A task chama `fechar_mes(fechar=False)`. O padrão da assinatura é `fechar=True`, e
+    #    com ele o espelho sem anomalia viraria `status='fechado'` DEFINITIVO todo dia, sem
+    #    ninguém conferir. Fechamento é ato humano — este beat só calcula.
+    #
+    #    Fila `gov.batch` porque ela tem consumidor comprovado. NUNCA `ged`: produtor sem
+    #    consumidor, 101 mensagens presas lá.
+    "ponto-recalcular-espelhos": {
+        "task": "ponto.recalcular_espelhos_mes_corrente",
+        "schedule": crontab(hour=5, minute=40),
         "options": {"queue": "gov.batch"},
     },
     "proativo-digest-diario": {
