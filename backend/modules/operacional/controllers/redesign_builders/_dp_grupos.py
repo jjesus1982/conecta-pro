@@ -64,6 +64,9 @@ GRUPOS = [
         ("ponto-configuracoes", "Configurações de ponto"), ("ponto-configuracao-nova", "Nova configuração"),
         ("relogios-ponto", "Relógios/aparelhos"), ("feriados", "Feriados"), ("feriado-novo", "Novo feriado"),
         ("cartao-ponto-lote", "Cartão de ponto em lote"), ("ausencias-dashboard", "Ausências"),
+        # 28/09/2026: par a par do dia (o que o Sólides mostra). 362 de 675 dias-plantão de
+        # 09/2026 têm 2+ segmentos que a linha única escondia.
+        ("apropriacao-horas", "Apropriação de horas"),
         # dgx t2 (24/09/2026): idem, anexadas por `_dgx_t2_ponto.telas(db, out)` — fechamento como
         # ato (reabrir com motivo) e integração de batimentos (arquivo AFD de relógio → batidas).
         ("integracao-batimentos", "Integração de batimentos"), ("integracao-batimentos-importar", "Importar arquivo do relógio"),

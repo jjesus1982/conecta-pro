@@ -220,6 +220,57 @@ async def _estado_ponto_hoje(db: AsyncSession, employee_id: str) -> dict[str, An
     return {"batidas": batidas, "ultima": ultima, "entrada_aberta": tem_entrada_aberta}
 
 
+#: Endereço final da porta abaixo. O router de self-service é montado sob `/portal`, e
+#: `people_management/__init__.py:_gatear_rotas_por_modulo` NÃO gateia `/portal/*` — é a
+#: audiência do próprio funcionário, a mesma de `/portal/self-service/facial/batida`.
+_URL_FOTO_SELF = "/api/v1/people-management/portal/self-service/batida/{pid}/foto"
+
+
+@router.get("/batida/{punch_id}/foto", summary="A selfie da MINHA batida")
+async def minha_foto_de_batida(
+    punch_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """A selfie da própria batida — e SÓ da própria.
+
+    Existe porque a porta que já havia (`/people-management/ponto/batida/{id}/foto`) está atrás
+    de `requer_modulo('dp')`: medido em 28/09/2026 com token de funcionário real, ela devolve
+    **403** até para a foto do próprio rosto. Sem esta rota, o `foto_url` que `ponto-hoje`
+    devolve seria um link que o dono da foto não consegue abrir.
+
+    🔴 O DONO SAI DO TOKEN, NUNCA DO CAMINHO. A conferência é `punch.employee_id == users
+    .employee_id`; sem ela, trocar o `punch_id` na barra de endereço daria o rosto do colega —
+    dado biométrico de terceiro. É a mesma regra de `_employee_id` em todo este arquivo.
+    """
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+
+    from modules.people_management.hr.services.cracha_pdf import foto_path  # noqa: PLC0415
+
+    emp = _employee_id(current_user)
+    row = (
+        await db.execute(
+            _sqltext(
+                "SELECT foto_capturada_url, CAST(employee_id AS TEXT) FROM gp_clock_punches "
+                " WHERE punch_id = :p OR CAST(id AS TEXT) = :p LIMIT 1"
+            ),
+            {"p": str(punch_id).strip()},
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Batida não encontrada.")
+    if str(row[1]) != str(emp):
+        # 403 e não 404: a batida existe, você é que não é o dono dela. Mentir 404 aqui
+        # esconderia do próprio funcionário o motivo da recusa.
+        raise HTTPException(status_code=403, detail="Esta batida não é sua.")
+    caminho = foto_path(row[0])
+    if not caminho:
+        raise HTTPException(status_code=404, detail="Esta batida não tem foto registrada.")
+    return FileResponse(
+        caminho, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"}
+    )
+
+
 @router.get(
     "/ponto-hoje",
     summary="Meu ponto de hoje (funcionário)",
@@ -245,7 +296,15 @@ async def ponto_hoje(
             "hora": ts.strftime("%H:%M") if ts else None,
             "dentro_geofence": b["dentro_geofence"],
             "distancia_posto_metros": b["distancia_posto_metros"],
-            "foto_capturada_url": b["foto_capturada_url"],
+            # 🔴 28/09/2026 — aqui saía o caminho de disco cru (`/uploads/ponto/{id}.jpg`), que
+            # NENHUM navegador renderiza: não existe `StaticFiles` montado neste backend, medido.
+            #
+            # ⚠️ E NÃO é a URL de DP (`/people-management/ponto/batida/{id}/foto`): essa está
+            # atrás de `requer_modulo('dp')` e eu MEDI com token de funcionário real — devolve
+            # **403** ("Acesso negado ao módulo 'dp'"), inclusive para a foto da própria pessoa.
+            # Trocar caminho-morto por 403 seria trocar um vazio por outro, com cara de conserto.
+            # Vai a porta de self-service abaixo, que resolve o dono pelo JWT.
+            "foto_url": _URL_FOTO_SELF.format(pid=b["punch_id"]) if b["foto_capturada_url"] else None,
             "posto_nome": b["posto_nome"],
         }
 
@@ -1022,7 +1081,21 @@ async def facial_batida(
 
 
 class _ContingenciaBatidaBody(BaseModel):
+    """Corpo da batida de contingência.
+
+    🔴 28/09/2026 — os DOIS campos aqui eram decorativos. Medido: desde 15/09, batida por
+    `mobile` tem foto em **889 de 889**; batida por `contingencia`, **0 de 90**. A foto sumia
+    exatamente no caso em que a facial falhou, que é quando o DP É o gate humano e a única
+    pergunta que importa é «foi essa pessoa?». E `motivo` chegava no corpo e não era gravado em
+    lugar nenhum — a batida pendente caía na mesa da Pyetra sem história.
+    """
+
     motivo: str | None = None
+    #: A selfie que o app já capturou na tentativa que FALHOU (o `grabFrame()` do
+    #: `FacialCapture` devolve imagem mesmo quando o rosto não bateu com a referência).
+    #: Pode vir vazia de propósito — câmera que não abre não tem quadro, e mentir um
+    #: retângulo cinza seria pior que a ausência honesta.
+    foto_base64: str | None = None
 
 
 class _TentativaFalhaBody(BaseModel):
@@ -1098,21 +1171,61 @@ async def batida_contingencia(
     # A batida extra entra rotulada como `extra`, que é o que dá ao DP o gancho para
     # conferir sem ter que adivinhar qual das quatro ela deveria ser.
     pid = str(_uuid.uuid4())
+    # 🔴 A FOTO CHEGA JUSTO ONDE ELA É O ÚNICO GATE (28/09/2026). Reusa
+    # `_salvar_selfie_ponto`, o MESMO gravador da batida facial — mesmo diretório
+    # (/app/uploads/ponto/{punch_id}.jpg), mesma URL, mesma porta para ver
+    # (`/ponto/batida/{id}/foto`). Nada de segundo formato de arquivo.
+    from modules.people_management.hr.services.time_record_service import (  # noqa: PLC0415
+        _salvar_selfie_ponto,
+    )
+
+    foto_url = _salvar_selfie_ponto(pid, body.foto_base64)
     await db.execute(
         _sqltext(
             "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, punch_timestamp, "
-            " server_timestamp, status, device_type, created_at, updated_at) "
+            " server_timestamp, status, device_type, foto_capturada_url, created_at, updated_at) "
             "VALUES (:pid, CAST(:e AS uuid), :t, (now() AT TIME ZONE 'America/Manaus'), "
-            " (now() AT TIME ZONE 'America/Manaus'), 'pending_contingencia', 'contingencia', now(), now())"
+            " (now() AT TIME ZONE 'America/Manaus'), 'pending_contingencia', 'contingencia', :foto, now(), now())"
         ),
-        {"pid": pid, "e": emp, "t": (prox["tipo"] if not prox["concluido"] else "extra")},
+        {
+            "pid": pid,
+            "e": emp,
+            "t": (prox["tipo"] if not prox["concluido"] else "extra"),
+            "foto": foto_url,
+        },
     )
+    # O `motivo` vinha no corpo e NÃO ERA GRAVADO — a batida pendente chegava ao DP sem história.
+    # Vai para `gp_justifications`, MESMA tabela, MESMO `justification_type` e MESMA `category`
+    # que a contingência por WhatsApp já usa (`atendimento_funcionario.registrar_contingencia`),
+    # mudando só `source`. Isto NÃO é escolha estética: aquele arquivo documenta que gravar
+    # `justification_type='atraso'` aqui vira 60 min de desconto por linha na rubrica 231 da folha
+    # (`payroll_service._get_faltas_atrasos`) — 23 linhas / 1.380 minutos quase saíram em 09/2026.
+    # `batida_contingencia` é o valor conferido um-a-um contra os consumidores: aparece na tela da
+    # Pyetra e NÃO desconta. Registro é fato; desconto é decisão de quem revisa.
+    if (body.motivo or "").strip():
+        await db.execute(
+            _sqltext(
+                "INSERT INTO gp_justifications (justification_id, punch_id, employee_id, "
+                " justification_type, reason, category, status, source, created_at) "
+                "VALUES (:jid, :pid, :e, 'batida_contingencia', :r, 'outro', 'pendente', "
+                " 'app_funcionario', now())"
+            ),
+            {
+                "jid": str(_uuid.uuid4()),
+                "pid": pid,
+                "e": emp,
+                "r": f"Batida por contingência no app: {body.motivo.strip()}"[:2000],
+            },
+        )
     await db.commit()
     return {
         "success": True,
         "punch_id": pid,
         "punch_type": (prox["tipo"] if not prox["concluido"] else "extra"),
         "status": "pending_contingencia",
+        # Quem bateu precisa saber se a evidência foi junto: sem isto a pessoa não tem como
+        # perceber que a batida dela chegou ao DP sem foto nenhuma para conferir.
+        "foto_registrada": bool(foto_url),
         "message": "Registramos sua tentativa. O DP vai validar sua batida — você não perdeu o ponto.",
     }
 

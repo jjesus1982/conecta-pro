@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from datetime import date
 from typing import Any
 
@@ -218,6 +217,7 @@ async def registrar_batida_me(
 async def get_foto_batida(
     punch_id: str,
     current_user: CurrentActiveUser,
+    req: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """A selfie tirada no registro do ponto, para a conferência do DP ver na tela.
@@ -241,9 +241,14 @@ async def get_foto_batida(
     a URL, quem olha o disco vê o arquivo — e a pessoa do outro lado vê um espaço vazio.
 
     ⚠️ E NÃO é `StaticFiles` em `/uploads`. São **rostos de colaborador**: mount estático abre o
-    diretório inteiro a quem enumerar, sem sessão e sem rastro. Aqui passa por sessão válida e
-    cada leitura vai para o log com quem pediu e de quem era a batida — dado biométrico, ver tem
-    de deixar marca.
+    diretório inteiro a quem enumerar, sem sessão e sem rastro. Aqui passa pela parede de DP
+    (`requer_modulo('dp')`, injetada em `people_management/__init__.py:_gatear_rotas_por_modulo`
+    — medido: funcionário comum recebe 403) e cada leitura vira LINHA em `gp_audit_logs`.
+
+    ⚠️ Havia uma SEGUNDA função com este mesmo path (`foto_da_batida`), registrada depois e
+    portanto MORTA — o FastAPI serve a primeira. Removida em 28/09/2026, provada morta por
+    comportamento: com token de DP, batida sem foto devolve «Esta batida não tem foto
+    registrada.» (texto DESTA função) e nunca o texto da outra.
     """
     from fastapi.responses import FileResponse
 
@@ -252,9 +257,12 @@ async def get_foto_batida(
     r = (
         await db.execute(
             text(
-                "SELECT p.foto_capturada_url, e.nome, p.punch_type, p.punch_timestamp "
+                "SELECT p.foto_capturada_url, e.nome, p.punch_type, p.punch_timestamp, "
+                "       CAST(p.employee_id AS TEXT) "
                 "  FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
-                " WHERE p.punch_id = :p"
+                # `OR p.id` herdado da rota morta que removi abaixo: algumas telas carregam a
+                # batida pela PK numérica, e perder essa tolerância seria regressão silenciosa.
+                " WHERE p.punch_id = :p OR CAST(p.id AS TEXT) = :p LIMIT 1"
             ),
             {"p": str(punch_id).strip()},
         )
@@ -269,11 +277,53 @@ async def get_foto_batida(
         # COMUM, e confundi-lo com erro faria a tela acusar defeito onde só falta selfie.
         raise HTTPException(status_code=404, detail="Esta batida não tem foto registrada.")
 
-    logging.getLogger(__name__).info(
-        "foto de ponto: %s abriu a batida %s de %s (%s %s)",
-        getattr(current_user, "username", "?"), punch_id, r[1], r[2], r[3],
+    # 🔴 28/09/2026 — A AFIRMAÇÃO VIROU COMPORTAMENTO (LGPD).
+    # O docstring daqui prometia que «cada leitura vai para o log com quem pediu», e o que havia
+    # era UM `logger.info` com `getattr(current_user, 'username', '?')` — campo que o model `User`
+    # NÃO TEM (ele tem `email` e `name`). Medido no log do contêiner: a única linha gravada até
+    # agora diz literalmente **«foto de ponto: ? abriu a batida …»** — 1 de 1 sem saber quem olhou.
+    # E `stdout` de contêiner não é trilha auditável: rotaciona e ninguém consulta.
+    #
+    # Agora vai para `gp_audit_logs`, a mesma tabela onde as tentativas de batida
+    # (`tentativa_log`) e as correções de tipo (`_auditar_correcao_tipo`) já moram — sem migration.
+    #
+    # NÃO engole exceção, pelo mesmo critério de `_auditar_correcao_tipo`: ver rosto de
+    # colaborador sem deixar marca é pior que não ver. Se o rastro não entra, a foto não sai.
+    import json as _json  # noqa: PLC0415
+    import uuid as _uuid  # noqa: PLC0415
+
+    _ip, _ua = _origem(req)
+    _quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "desconhecido"
+    await db.execute(
+        text(
+            "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
+            "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module, "
+            "  context_ip, context_user_agent, related_funcionario_id, extra_data) "
+            "VALUES (:id, (now() AT TIME ZONE 'America/Manaus'), 'ponto.foto_vista', "
+            "  'gp_clock_punches', :pid, :desc, 'people_management.ponto', :uid, :unome, :urole, "
+            "  'ponto', :ip, :ua, :eid, CAST(:ex AS jsonb))"
+        ),
+        {
+            "id": str(_uuid.uuid4()),
+            "pid": str(punch_id).strip(),
+            "desc": f"{_quem} abriu a selfie da batida {r[2]} de {r[1]} em {r[3]}"[:600],
+            "uid": str(getattr(current_user, "id", "") or "") or "desconhecido",
+            "unome": str(_quem)[:120],
+            "urole": (getattr(current_user, "role", "") or "desconhecido")[:40],
+            "ip": (_ip or "")[:60] or None,
+            "ua": _ua,
+            "eid": str(r[4]) if r[4] else None,
+            "ex": _json.dumps(
+                {"foto_url": r[0], "punch_type": r[2], "dono": r[1], "quando": str(r[3])},
+                ensure_ascii=False,
+            ),
+        },
     )
-    return FileResponse(caminho, media_type="image/jpeg")
+    await db.commit()  # sem commit a linha some no fim da sessão e o rastro volta a ser promessa
+    # `private`: rosto de colaborador não pode ficar em cache compartilhado (proxy/CDN).
+    return FileResponse(
+        caminho, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"}
+    )
 
 
 @router.get("/batidas/me")
@@ -335,12 +385,30 @@ def _hm_de_min(minutos: Any) -> str:
     return f"{sinal}{v // 60:02d}:{v % 60:02d}"
 
 
+def _tem_intervalo(valor: Any) -> bool:
+    """«01:00» -> True; «», «—», «00:00» -> False. Basta um dígito diferente de zero em HH:MM."""
+    return any(c in "123456789" for c in str(valor or ""))
+
+
 def _dia_da_tela(d: dict[str, Any]) -> dict[str, Any]:
     """Um dia do `daily_summary` na forma que a tela de espelho consome.
 
     O motor único já entrega a JORNADA consolidada: entrada, intervalo e saída numa linha só,
-    mesmo quando o turno atravessa a meia-noite. `entrada2`/`saida2` continuam no payload por
-    compatibilidade com a tela, vazios — o segundo par virou o campo `intervalo`.
+    mesmo quando o turno atravessa a meia-noite.
+
+    28/09/2026 — `entrada2`/`saida2` PARAM de sair vazios. Vinham `""` por decisão de setembro
+    ("o segundo par virou o campo intervalo"), e o efeito medido é que a tela escondia a segunda
+    linha que o Sólides mostra: em 09/2026, de **675 dias-plantão, 362 têm 2+ segmentos** (361 com
+    2, 13 com 3, 1 com 4) — mais da metade dos dias da casa saía como uma tarja só, e um plantão
+    19:00→02:00 + 03:00→07:17 aparecia como "19:00 → 07:17".
+
+    Quando há `segmentos`, `entrada1/saida1` passam a ser o PRIMEIRO par e não mais o par
+    sintético (1ª entrada … ÚLTIMA saída) — sem isso a linha diria "19:00 → 07:17" na coluna 1 e
+    "03:00 → 07:17" na coluna 2, repetindo a mesma saída em duas colunas. Com 0 ou 1 segmento
+    nada muda: um segmento só É a jornada consolidada.
+
+    Com 3+ segmentos as quatro colunas de hora não cabem — a marca vai em `obs` (nunca se
+    esconde em silêncio) e `segmentos` continua com TODOS eles para quem quiser o detalhe.
     """
     from datetime import date as _date  # noqa: PLC0415
 
@@ -362,29 +430,235 @@ def _dia_da_tela(d: dict[str, Any]) -> dict[str, Any]:
         obs.append(f"Atraso {_hm_de_min(d.get('late'))}")
     if d.get("notes"):
         obs.append(str(d["notes"]))
+    if d.get("aviso_segmentos"):
+        obs.append(str(d["aviso_segmentos"]))
     # `notes` já costuma trazer a mesma palavra da flag ("Feriado" com is_holiday=True), e a
     # linha saía "Feriado · Feriado". Mantém a ordem e tira o eco.
+    # `or []` porque o SEGUNDO escritor de `daily_summary`
+    # (time_sheet_service._process_day) não grava a chave.
+    segs = [s for s in (d.get("segmentos") or []) if isinstance(s, dict)]
+    # Batida DUPLICADA não é segmento novo: NAILSON bateu «entrada» três vezes no mesmo segundo
+    # (08:01:36,6 / ,75 / ,80) em 08/09/2026 e o motor devolve 2 órfãos + o par 08:01→12:00.
+    # Mostrando os segmentos em ordem crua, as duas colunas ficavam «08:01 → —» duas vezes e o
+    # ÚNICO par de verdade caía fora da tela. Órfão cuja hora já aparece num par fechado é
+    # ruído do aparelho — sai das colunas, é contado no aviso e continua em `segmentos`.
+    horas_de_par = {
+        h for s in segs if not s.get("incompleto") for h in (s.get("entrada"), s.get("saida")) if h
+    }
+    vis = [
+        s
+        for s in segs
+        if not (s.get("incompleto") and (s.get("entrada") or s.get("saida")) in horas_de_par)
+    ]
+    dup = len(segs) - len(vis)
+    e1, s1 = d.get("entrada") or "", d.get("saida") or ""
+    e2, s2 = "", ""
+    if vis:
+        e1, s1 = vis[0].get("entrada") or "", vis[0].get("saida") or ""
+        if len(vis) > 1:
+            e2, s2 = vis[1].get("entrada") or "", vis[1].get("saida") or ""
+        if len(vis) > 2:
+            obs.append(f"+{len(vis) - 2} segmento(s) além das colunas — ver segmentos")
+        if any(s.get("incompleto") for s in vis):
+            obs.append("intervalo quebrado: falta marcação")
+    if dup:
+        obs.append(f"{dup} marcação(ões) repetida(s)")
+    # 28/09/2026 — POR QUE ESTA GUARDA: medido na aba VIVA (token da Pyetra, 1299 linhas de
+    # 08+09/2026), **21 linhas** mostravam UM par com `intervalo 01:00` e a coluna Obs VAZIA.
+    # Ex.: ANDREA 12/08 «19:01 → 07:00», intervalo 01:00, worked 10:59 — o espelho SUBTRAIU
+    # 60 min, logo o dia tem dois segmentos; as batidas cruas confirmam (entrada 19:01 mobile ·
+    # saida 00:00 tangerino · entrada 01:00 tangerino · saida 07:00 mobile). A derivação só
+    # recompôs 1 par e a tela calava: uma linha única sobre um dia COM intervalo é exatamente a
+    # mentira que esta aba existe para matar, e calar é pior que a tarja antiga, porque agora a
+    # tela afirma «não houve segundo par».
+    # CAUSA HERDADA (não consertada aqui — encosta em horas trabalhadas): `_uma_fonte_por_dia`
+    # descarta, por dia CIVIL, batida de fonte não-medida (grade Tangerino) quando há batida
+    # medida no mesmo dia; no plantão noturno o 2º par cai no dia seguinte junto de uma medida.
+    # O intervalo do espelho é fato JÁ APURADO na linha gravada — declaro a ausência, não invento
+    # a hora que falta.
+    ja_avisado = any(k in t for t in obs for k in ("recalcule", "intervalo quebrado", "além das colunas"))
+    if len(vis) < 2 and _tem_intervalo(d.get("intervalo")) and not ja_avisado:
+        obs.append(
+            f"intervalo de {d.get('intervalo')} no espelho sem 2º par visível — recalcule o espelho"
+        )
     obs = list(dict.fromkeys(obs))
+
+    # Saldo do DIA = trabalhadas − previsto, a mesma subtração que o mês faz no total. Não é
+    # matemática nova de folha: `worked` e `expected` são os números que o motor já gravou.
+    worked, esperado = d.get("worked"), d.get("expected")
+    saldo = None
+    if isinstance(worked, (int, float)) and isinstance(esperado, (int, float)):
+        saldo = int(round(worked - esperado))
 
     return {
         "dia": dia_br,
         "data": iso,
         "dia_semana": semana,
-        "entrada1": d.get("entrada") or "",
-        "saida1": d.get("saida") or "",
-        "entrada2": "",
-        "saida2": "",
+        "entrada1": e1,
+        "saida1": s1,
+        "entrada2": e2,
+        "saida2": s2,
         "intervalo": d.get("intervalo") or "",
         "total": _hm_de_min(d.get("worked")),
+        "previsto": _hm_de_min(esperado),
+        "saldo_dia": _hm_de_min(saldo),
+        "saldo_min": saldo,
         "obs": " · ".join(obs),
+        # ACRÉSCIMO (28/09/2026): o detalhe par-a-par do motor. Sem esta linha os `segmentos`
+        # que o espelho passou a gravar morriam aqui — este dict é montado campo a campo, não
+        # repassa chave nova sozinho.
+        "segmentos": segs,
+    }
+
+
+def dias_com_segmentos(db: Session, esp: dict[str, Any], mes: int, ano: int) -> list[dict[str, Any]]:
+    """Os `dias` do espelho GRAVADO, completados com os segmentos derivados na hora.
+
+    POR QUE: `segmentos` só passou a ser gravado em 28/09/2026 e o banco tem **0 de 295**
+    time_sheets com a chave; mês fechado/homologado nunca será recalculado (`calcular_espelho`
+    protege o registro legal). Sem isto a coluna Ent.2/Saí.2 nasceria vazia em 100% dos espelhos
+    que já existem.
+
+    Não sobrescreve o documento: se a derivação de HOJE não recompõe as pontas que o espelho
+    gravou (batidas ajustadas depois do cálculo), o dia fica SEM segmento e ganha uma nota —
+    mostrar par que contradiz o PDF assinado seria pior que mostrar uma linha só.
+    """
+    from modules.people_management.hr.services.espelho_service import (  # noqa: PLC0415
+        segmentos_do_mes,
+    )
+
+    dias = [d for d in (esp.get("dias") or []) if isinstance(d, dict)]
+    if not dias or all(d.get("segmentos") for d in dias):
+        return dias
+    derivados = segmentos_do_mes(db, str(esp["employee_id"]), int(mes), int(ano))
+    for d in dias:
+        if d.get("segmentos"):
+            continue
+        segs = derivados.get(str(d.get("date") or ""))
+        if not segs:
+            continue
+        if (segs[0].get("entrada") or "") != (d.get("entrada") or "") or (
+            segs[-1].get("saida") or ""
+        ) != (d.get("saida") or ""):
+            # chave PRÓPRIA e não `notes`: `notes` entra em `obs` junto das flags, e concatenar
+            # aqui ressuscitava o eco "Feriado · Feriado; ..." que a dedupe de `obs` já resolvia.
+            d["aviso_segmentos"] = "batidas alteradas depois do cálculo — recalcule o espelho"
+            continue
+        d["segmentos"] = segs
+    return dias
+
+
+def _periodo(de: str | None, ate: str | None) -> tuple[date, date]:
+    """`de`/`ate` em ISO → (início, fim) inclusivos. Falta uma ponta = o mês da outra."""
+    import calendar  # noqa: PLC0415
+
+    def _p(s: str) -> date:
+        try:
+            return date.fromisoformat(str(s)[:10])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Data inválida «{s}» — use AAAA-MM-DD.") from e
+
+    d1 = _p(de) if de else None
+    d2 = _p(ate) if ate else None
+    if d1 is None:
+        d1 = d2.replace(day=1)  # type: ignore[union-attr]
+    if d2 is None:
+        d2 = d1.replace(day=calendar.monthrange(d1.year, d1.month)[1])
+    if d1 > d2:
+        raise HTTPException(status_code=400, detail="Período invertido: «de» é depois de «até».")
+    if (d2.year - d1.year) * 12 + (d2.month - d1.month) > 11:
+        raise HTTPException(status_code=400, detail="Período de no máximo 12 competências por consulta.")
+    return d1, d2
+
+
+def _espelho_periodo(db: Session, employee_id: str, d1: date, d2: date) -> dict[str, Any]:
+    """Espelho de um PERÍODO livre — os dias dos espelhos gravados que caem entre d1 e d2.
+
+    Cada competência mantém o seu total legal em `competencias` (é ele que vai assinado). Os
+    totais do período são a SOMA dos dias do motor — não uma conta paralela: o mesmo `worked` e
+    `expected` que o `time_sheets` já guardou, somados. READ-ONLY: não calcula, não grava.
+    """
+    from modules.people_management.hr.services.espelho_ponto_service import (  # noqa: PLC0415
+        ler_espelho,
+    )
+
+    meses: list[tuple[int, int]] = []
+    y, m = d1.year, d1.month
+    while (y, m) <= (d2.year, d2.month):
+        meses.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+    dias: list[dict[str, Any]] = []
+    comps: list[dict[str, Any]] = []
+    sem: list[str] = []
+    cab: dict[str, Any] = {}
+    trab = prev = 0
+    for ano, mes in meses:
+        esp = ler_espelho(db, employee_id, mes, ano)
+        if esp is None:
+            sem.append(f"{mes:02d}/{ano}")
+            continue
+        cab = cab or esp
+        for d in dias_com_segmentos(db, esp, mes, ano):
+            try:
+                dt = date.fromisoformat(str(d.get("date") or "")[:10])
+            except ValueError:
+                continue
+            if not (d1 <= dt <= d2):
+                continue
+            trab += int(d.get("worked") or 0)
+            prev += int(d.get("expected") or 0)
+            dias.append(_dia_da_tela(d))
+        comps.append(
+            {
+                "competencia": f"{mes:02d}/{ano}",
+                "total_trabalhado": esp.get("horas_trabalhadas"),
+                "horas_esperadas": esp.get("horas_previstas"),
+                "saldo": esp.get("saldo_banco"),
+                "status": esp.get("status"),
+                "fechado": esp.get("fechado"),
+                "homologado": esp.get("approved_by_employee"),
+            }
+        )
+    if not comps:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Sem espelho calculado em {', '.join(sem)} para este colaborador — calcule na aba "
+                "«Espelho: calcular/fechar». Nada é estimado aqui."
+            ),
+        )
+    dias.sort(key=lambda r: str(r.get("data") or ""))
+    return {
+        "employee_id": str(cab.get("employee_id") or employee_id),
+        "employee_name": cab.get("employee_name"),
+        "competencia": f"{d1:%d/%m/%Y} a {d2:%d/%m/%Y}",
+        "de": d1.isoformat(),
+        "ate": d2.isoformat(),
+        "jornada": cab.get("work_schedule_name") or "—",
+        "escala": cab.get("work_schedule_name") or "—",
+        "posto": cab.get("condominium_name"),
+        "total_dias": len(dias),
+        # do PERÍODO (soma dos dias), não do mês: quem quer o número legal do mês lê `competencias`
+        "total_trabalhado_min": trab,
+        "horas_esperadas_min": prev,
+        "saldo_min": trab - prev,
+        "total_trabalhado": _hm_de_min(trab),
+        "horas_esperadas": _hm_de_min(prev),
+        "saldo": _hm_de_min(trab - prev),
+        "competencias": comps,
+        "sem_espelho": sem,
+        "dias": dias,
     }
 
 
 @router.get("/espelho/{employee_id}")
 def get_espelho_mensal(
     employee_id: str,
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(..., ge=2020),
+    month: int | None = Query(None, ge=1, le=12),
+    year: int | None = Query(None, ge=2020),
+    de: str | None = Query(None, description="Início do período (AAAA-MM-DD) — alternativa a month/year"),
+    ate: str | None = Query(None, description="Fim do período (AAAA-MM-DD)"),
     db: Session = Depends(get_sync_db_dependency),
 ) -> dict[str, Any]:
     """Espelho mensal — a MESMA conta do PDF que vai a assinatura.
@@ -402,10 +676,26 @@ def get_espelho_mensal(
     ainda não foi calculado, calcula com o motor legal (`calcular_espelho`) em vez de inventar
     um segundo número. Síncrona de propósito — o motor legal é sync, e o FastAPI já roda
     função `def` no threadpool.
+
+    28/09/2026 — aceita `de`/`ate` (AAAA-MM-DD) além de `month`/`year`, porque a apropriação de
+    horas do DP não tem borda de mês: a Pyetra escolhe o período. O período NÃO auto-calcula
+    espelho (o mês avulso continua calculando, comportamento intacto): varrer 12 meses gravando
+    time_sheets numa rota de leitura é escrita escondida — os meses sem espelho vêm listados em
+    `sem_espelho`, e o total do período é a soma dos dias do próprio motor, nunca um número novo.
     """
     from modules.people_management.hr.services.espelho_ponto_service import (  # noqa: PLC0415
         ler_espelho,
     )
+
+    # Chamada DIRETA (não-HTTP) desta função deixa `de`/`ate` como o objeto `Query`, que é
+    # verdadeiro — sem isto, `get_espelho_mensal(eid, month=9, year=2026, db=s)` cai no caminho de
+    # período e estoura em «Data inválida «annotation=…»». Acontece: é como a aba nova reusaria.
+    de = de if isinstance(de, str) and de.strip() else None
+    ate = ate if isinstance(ate, str) and ate.strip() else None
+    if de or ate:
+        return _espelho_periodo(db, employee_id, *_periodo(de, ate))
+    if not month or not year:
+        raise HTTPException(status_code=400, detail="Informe month/year ou de/ate.")
 
     esp = ler_espelho(db, employee_id, month, year)
     if esp is None:
@@ -429,7 +719,7 @@ def get_espelho_mensal(
                 ),
             )
 
-    dias = [_dia_da_tela(d) for d in (esp.get("dias") or []) if isinstance(d, dict)]
+    dias = [_dia_da_tela(d) for d in dias_com_segmentos(db, esp, month, year)]
     return {
         "employee_id": esp["employee_id"],
         "employee_name": esp.get("employee_name"),
@@ -456,51 +746,15 @@ def get_espelho_mensal(
     }
 
 
-@router.get("/batida/{punch_id}/foto", summary="Selfie da batida (farda, barba, quem bateu)")
-async def foto_da_batida(
-    punch_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Devolve a selfie tirada NA batida — a evidência de farda, barba e de quem bateu.
-
-    Existe porque o arquivo era salvo e não havia como vê-lo: nenhuma rota servia
-    /uploads/ponto/. É o que a Pyetra olha no Sólides e não tinha aqui (14/09/2026).
-
-    É IMAGEM DE PESSOA: exige usuário autenticado e o acesso fica registrado. `Cache-Control:
-    private` — a foto não entra em cache compartilhado.
-    """
-    from fastapi.responses import FileResponse  # noqa: PLC0415
-
-    row = (
-        await db.execute(
-            text(
-                "SELECT p.foto_capturada_url, coalesce(e.nome,'') "
-                "FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
-                "WHERE p.punch_id = :p OR CAST(p.id AS TEXT) = :p LIMIT 1"
-            ),
-            {"p": punch_id},
-        )
-    ).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Batida não encontrada.")
-    url = (row[0] or "").strip()
-    if not url:
-        # Honesto: 404 com a razão. As batidas anteriores a 14/09/2026 não têm foto porque
-        # o serviço descartava o `foto_base64` que o app mandava — não adianta procurar.
-        raise HTTPException(
-            status_code=404,
-            detail="Esta batida não tem foto guardada. Batidas anteriores a 14/09/2026 "
-            "não guardaram a selfie (o app enviava e o servidor descartava).",
-        )
-    caminho = os.path.join("/app", url.lstrip("/"))
-    if not os.path.exists(caminho):
-        raise HTTPException(status_code=404, detail=f"Arquivo da foto não está no disco ({url}).")
-    return FileResponse(
-        caminho,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
+# 🔴 REMOVIDA EM 28/09/2026 — rota MORTA: `foto_da_batida` declarava o MESMO path
+# `/batida/{punch_id}/foto` de `get_foto_batida` (acima, linha ~217) e era registrada DEPOIS.
+# O FastAPI casa a primeira rota compatível, então este corpo nunca executou. Provado por
+# comportamento com token de DP: batida sem foto devolve «Esta batida não tem foto registrada.»
+# (texto do de cima) e JAMAIS «Batidas anteriores a 14/09/2026 não guardaram a selfie», que era
+# a mensagem daqui. O docstring dela afirmava «o acesso fica registrado» e a função não
+# escrevia auditoria nenhuma — a promessa foi para o de cima, que agora grava em gp_audit_logs.
+# As duas coisas boas que ela tinha foram salvas no de cima: aceitar `gp_clock_punches.id`
+# numérico além do `punch_id`, e o header `Cache-Control: private`.
 
 
 @router.post("/justificativa", response_model=JustificationResponse, status_code=201)

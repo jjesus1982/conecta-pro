@@ -357,19 +357,46 @@ def _dia_coberto_por_abono(db: Session, employee_id: str, dia: date) -> str | No
 
 
 # ── Núcleo: pareamento + turnos ─────────────────────────────────────────────
-def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
+def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """Pareia entrada→saída cronologicamente. Retorna (pares, anomalias_de_par).
 
     pares: [{entrada, saida, dur_min, entrada_manual, saida_manual}]
     anomalias: [{type, date, description, punch_id}]
+
+    `orfaos_out` (opcional) recebe as batidas que NÃO formaram par, com a marca que FALTA:
+    [{pos, ts, lado, falta, manual, em_curso}] — `pos` é o índice em `pares` onde o órfão
+    entra na ordem cronológica, `lado` diz qual ponta é conhecida ("entrada" = temos a
+    entrada e falta a saída; "saida" = temos a saída e falta a abertura).
+
+    POR QUE existe: as batidas órfãs viravam SÓ texto em `pending_issues` e desapareciam do
+    detalhe do dia. Medido em 28/09/2026 nos 30 dias anteriores: 115 dias (12% de 1027, em 23
+    pessoas) têm marcação de almoço ímpar — 106 com uma só marca e 9 com três. Sem isto, um
+    dia 08:00→12:00 + saída órfã 17:00 aparece como um único par de 4h e a saída de 17:00 não
+    existe em lugar nenhum da linha do dia. É lista de SAÍDA (parâmetro opt-in): quem chama
+    com dois valores de retorno não muda de comportamento, e NADA aqui altera `pares` — ou
+    seja, minuto trabalhado, intervalo e folha continuam idênticos.
     """
     pares: list[dict] = []
     anomalias: list[dict] = []
     aberta: dict | None = None  # batida de entrada em aberto
+    tipo_ant = ""  # punch_type da batida anterior (p/ saber QUAL marca falta)
 
     def _is_manual(b: dict) -> bool:
         dev = (b.get("device_type") or "").strip().lower()
         return dev in MANUAL_DEVICE_TYPES or bool(b.get("justification_id"))
+
+    def _orfao(ts: datetime, lado: str, falta: str, manual: bool, em_curso: bool = False) -> None:
+        if orfaos_out is not None:
+            orfaos_out.append(
+                {
+                    "pos": len(pares),
+                    "ts": ts,
+                    "lado": lado,
+                    "falta": falta,
+                    "manual": manual,
+                    "em_curso": em_curso,
+                }
+            )
 
     for b in batidas:
         tipo = (b.get("punch_type") or "").strip().lower()
@@ -378,7 +405,14 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
         fecha = tipo.startswith("saida") or tipo.startswith("saída")
         if abre:
             if aberta is not None:
-                # entrada anterior nunca foi fechada
+                # entrada anterior nunca foi fechada. O que falta é a marca de FECHAMENTO:
+                # se a batida nova é um retorno de almoço, faltou a `saida_almoco`.
+                _orfao(
+                    aberta["ts"],
+                    "entrada",
+                    "saida_almoco" if tipo.startswith("retorno") else "saida",
+                    aberta["manual"],
+                )
                 anomalias.append(
                     {
                         "type": "par_incompleto",
@@ -392,8 +426,18 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
                     }
                 )
             aberta = {"ts": ts, "punch_id": b.get("punch_id"), "manual": _is_manual(b)}
+            tipo_ant = tipo
         elif fecha:
             if aberta is None:
+                # saída sem abertura. O que falta é a marca de ABERTURA: se a batida anterior
+                # foi uma `saida_almoco`, o que não veio foi o `retorno_almoco`.
+                _orfao(
+                    ts,
+                    "saida",
+                    "retorno_almoco" if tipo_ant.startswith(("saida_almoco", "saída_almoco")) else "entrada",
+                    _is_manual(b),
+                )
+                tipo_ant = tipo
                 anomalias.append(
                     {
                         "type": "saida_sem_entrada",
@@ -429,6 +473,7 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
                     }
                 )
             aberta = None
+            tipo_ant = tipo
 
     if aberta is not None:
         # Turno EM ANDAMENTO não é anomalia. A pessoa entrou às 19:00 de hoje e vai sair
@@ -442,6 +487,9 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
 
         _agora = datetime.now(ZoneInfo("America/Manaus")).replace(tzinfo=None)
         _em_curso = (_agora - aberta["ts"]).total_seconds() / 60.0 < MAX_PAIR_MIN
+        # O segmento aparece nos dois casos (em curso ou saída realmente ausente) — quem lê
+        # distingue por `em_curso`. Turno em andamento NÃO é pendência de DP.
+        _orfao(aberta["ts"], "entrada", "saida", aberta["manual"], em_curso=_em_curso)
         if not _em_curso:
             anomalias.append(
                 {
@@ -456,7 +504,9 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
     return pares, anomalias
 
 
-def _agrupar_turnos(pares: list[dict], janelas: list | None = None) -> list[dict]:
+def _agrupar_turnos(
+    pares: list[dict], janelas: list | None = None, orfaos: list[dict] | None = None
+) -> list[dict]:
     """Agrupa pares em TURNOS pelo DIA DO PLANTÃO e atribui o turno a esse dia.
 
     A régua é a única da casa (`ponto/services/horas_service.dia_do_plantao`, DGX V1/W1/X4):
@@ -469,8 +519,18 @@ def _agrupar_turnos(pares: list[dict], janelas: list | None = None) -> list[dict
     por isso o espelho de quem não tem escala lançada não se mexe.
 
     Retorna [{date, entrada, saida, pares, worked_min, break_min}].
+
+    `orfaos` (de `_parear(..., orfaos_out=)`) é MUTADO: cada órfão ganha `dia`, o dia do
+    plantão dele pela MESMA régua, para que o chamador saiba a qual turno ele pertence.
+    Datar o órfão pelo vizinho de índice daria o dia errado no noturno (uma `saida_almoco`
+    órfã às 00:59 pertence ao plantão do dia ANTERIOR). O órfão NÃO entra na cadeia
+    `ultimo` — se entrasse, mudaria a data de turnos seguintes e, com ela, a folha.
     """
     from modules.people_management.ponto.services.horas_service import dia_do_plantao
+
+    por_pos: dict[int, list[dict]] = {}
+    for o in orfaos or []:
+        por_pos.setdefault(o["pos"], []).append(o)
 
     turnos: list[dict] = []
     atual: list[dict] = []
@@ -491,7 +551,9 @@ def _agrupar_turnos(pares: list[dict], janelas: list | None = None) -> list[dict
             "break_min": break_min,
         }
 
-    for p in pares:
+    for i, p in enumerate(pares):
+        for o in por_pos.get(i, ()):
+            o["dia"] = dia_do_plantao(o["ts"], janelas or [], ultimo)
         dia = dia_do_plantao(p["entrada"], janelas or [], ultimo)
         ultimo = (p["saida"], dia)
         if atual and dia == dia_atual:
@@ -500,9 +562,90 @@ def _agrupar_turnos(pares: list[dict], janelas: list | None = None) -> list[dict
         if atual:
             turnos.append(_fecha(atual, dia_atual))
         atual, dia_atual = [p], dia
+    for o in por_pos.get(len(pares), ()):  # órfãos depois do último par válido
+        o["dia"] = dia_do_plantao(o["ts"], janelas or [], ultimo)
     if atual:
         turnos.append(_fecha(atual, dia_atual))
     return turnos
+
+
+def _segmentos(pares: list[dict], orfaos: list[dict]) -> list[dict]:
+    """Os pares do turno, um a um, MAIS as batidas órfãs dizendo o que faltou marcar.
+
+    POR QUE: o motor já parangonava certo e JOGAVA FORA — o `daily_summary` guardava só a
+    primeira entrada e a última saída do dia, então um plantão 19:00→02:00 + 03:00→07:17 saía
+    como "19:00 → 07:17" e o intervalo de 1h desaparecia da folha de ponto que vai assinada.
+    Medido em 28/09/2026 sobre 09/2026: 87 de 346 dias fecham com `entrada > saida` (noturno) e
+    166 de 346 (48%) têm 2+ segmentos que a linha única escondia.
+
+    Segmento completo: {entrada, saida, minutos, entrada_manual, saida_manual, incompleto:False}.
+    Segmento INCOMPLETO (batida órfã): a ponta que não existe vem `None`, `minutos` é 0 e
+    `falta` nomeia a marca ausente. NUNCA se inventa a hora que falta — 12% dos dias têm
+    marcação de almoço ímpar, e uma estrutura que assume "1 ou 2 pares" produziria lixo neles.
+    """
+    itens: list[tuple[datetime, dict]] = []
+    for p in pares:
+        itens.append(
+            (
+                p["entrada"],
+                {
+                    "entrada": _hhmm(p["entrada"]),
+                    "saida": _hhmm(p["saida"]),
+                    "minutos": int(round(p["dur_min"])),
+                    "entrada_manual": bool(p["entrada_manual"]),
+                    "saida_manual": bool(p["saida_manual"]),
+                    "incompleto": False,
+                },
+            )
+        )
+    for o in orfaos:
+        tem_entrada = o["lado"] == "entrada"
+        itens.append(
+            (
+                o["ts"],
+                {
+                    "entrada": _hhmm(o["ts"]) if tem_entrada else None,
+                    "saida": None if tem_entrada else _hhmm(o["ts"]),
+                    "minutos": 0,
+                    "entrada_manual": bool(o["manual"]) if tem_entrada else False,
+                    "saida_manual": False if tem_entrada else bool(o["manual"]),
+                    "incompleto": True,
+                    "falta": o["falta"],
+                    "em_curso": bool(o.get("em_curso")),
+                },
+            )
+        )
+    itens.sort(key=lambda x: x[0])
+    return [s for _, s in itens]
+
+
+def segmentos_do_mes(db: Session, employee_id: str, mes: int, ano: int) -> dict[str, list[dict]]:
+    """`{'2026-09-27': [seg, seg, ...]}` — os segmentos do mês DERIVADOS na hora, sem gravar nada.
+
+    POR QUE existe: `daily_summary` só passou a guardar `segmentos` em 28/09/2026, e os espelhos
+    já gravados nunca vão ganhar a chave — medido no banco no mesmo dia: **0 de 295 time_sheets
+    têm `segmentos`**, e `calcular_espelho` se RECUSA (de propósito) a recalcular mês fechado ou
+    homologado. Sem esta função, a tela de apropriação de horas mostraria coluna vazia justamente
+    nos meses que já foram assinados — que são os que o DP mais confere.
+
+    É o MESMO motor, nas mesmas quatro chamadas de `calcular_espelho`
+    (`_carregar_batidas` → `_parear` → `_agrupar_turnos` → `_segmentos`), com o mesmo recorte de
+    mês (o turno pertence ao mês em que COMEÇA). Não é uma quarta régua de pareamento: é a
+    terceira chamada da mesma. READ-ONLY: nenhum INSERT/UPDATE.
+    """
+    orfaos: list[dict] = []
+    pares, _anom = _parear(_carregar_batidas(db, employee_id, mes, ano), orfaos_out=orfaos)
+    turnos = _agrupar_turnos(pares, _janelas_de_turno(db, employee_id, mes, ano), orfaos)
+    orf_por_dia: dict[date, list[dict]] = {}
+    for o in orfaos:
+        if o.get("dia") is not None:
+            orf_por_dia.setdefault(o["dia"], []).append(o)
+    mes_ini, mes_fim = _mes_bounds(mes, ano)
+    return {
+        t["date"].isoformat(): _segmentos(t["pares"], orf_por_dia.get(t["date"], []))
+        for t in turnos
+        if mes_ini <= t["date"] < mes_fim
+    }
 
 
 def _esperado_turno(escala: str, dia: date) -> int:
@@ -561,8 +704,9 @@ def calcular_espelho(
     feriados = _carregar_feriados(db, mes, ano)
     escala_oraculo = _carregar_escala_oraculo(db, employee_id, mes, ano)
 
-    pares, anomalias = _parear(batidas)
-    turnos = _agrupar_turnos(pares, _janelas_de_turno(db, employee_id, mes, ano))
+    orfaos: list[dict] = []
+    pares, anomalias = _parear(batidas, orfaos_out=orfaos)
+    turnos = _agrupar_turnos(pares, _janelas_de_turno(db, employee_id, mes, ano), orfaos)
 
     # ── Recorte do mês-alvo (pareamento cruza a borda; o espelho não) ──────────
     # O turno pertence ao mês em que COMEÇA (data da 1ª entrada). Turnos/anomalias
@@ -599,6 +743,14 @@ def calcular_espelho(
     late_count = 0
     early_total = 0.0
     daily: list[dict] = []
+
+    # Órfãos indexados pelo DIA DO PLANTÃO que `_agrupar_turnos` estampou (não pelo dia civil:
+    # uma `saida_almoco` órfã às 00:59 é do plantão do dia anterior). Órfão em dia sem nenhum
+    # par válido não tem turno, logo não tem linha — ele continua visível em `pending_issues`.
+    orf_por_dia: dict[date, list[dict]] = {}
+    for _o in orfaos:
+        if _o.get("dia") is not None:
+            orf_por_dia.setdefault(_o["dia"], []).append(_o)
 
     tem_escala = len(escala_oraculo) > 0
 
@@ -686,6 +838,12 @@ def calcular_espelho(
                 "is_holiday": is_holiday,
                 "is_absent": False,
                 "notes": "; ".join(notas) if notas else None,
+                # ACRÉSCIMO (28/09/2026): o detalhe par-a-par que o motor calculava e descartava.
+                # Chave NOVA — nenhuma existente mudou de nome ou de valor. O SEGUNDO escritor de
+                # `daily_summary` (`hr/time_tracking/services/time_sheet_service.py:_process_day`)
+                # NÃO grava `segmentos`, então quem consome tem de tolerar ausência: use
+                # `dia.get("segmentos") or []`, nunca `dia["segmentos"]`.
+                "segmentos": _segmentos(t["pares"], orf_por_dia.get(dia, [])),
             }
         )
 

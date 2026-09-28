@@ -61,6 +61,7 @@ ABAS = [
     ("feriado-novo", "Novo feriado"),
     ("cartao-ponto-lote", "Cartão de ponto em lote"),
     ("ausencias-dashboard", "Ausências"),
+    ("apropriacao-horas", "Apropriação de horas"),
 ]
 
 
@@ -854,6 +855,159 @@ async def _tela_ausencias(db) -> dict:
     }
 
 
+#: Quantas competências a aba de apropriação carrega. 2 = o mês corrente e o que o DP fecha.
+_APROP_COMPS = 2
+
+
+def _apropriacao_linhas(mes_ano: list[tuple[int, int]]) -> tuple[list[dict], list[str], int]:
+    """Uma linha por colaborador×dia, vinda do MOTOR — sem SQL de pareamento aqui.
+
+    ⭐ Reúso obrigatório: `ler_espelho` (a mesma fonte do PDF assinado) + `dias_com_segmentos` +
+    `_dia_da_tela` (o mesmo formatador da tela de espelho). Esta casa já tem TRÊS réguas de
+    pareamento que discordam em 59 pessoa×dia; uma quarta aqui seria o defeito, não a entrega.
+
+    Quem não tem espelho CALCULADO na competência fica de fora e é CONTADO no subtítulo — nada
+    é estimado (o mês se calcula na aba «Espelho: calcular/fechar»).
+    """
+    from core.database.session import SyncSessionLocal
+    from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
+    from modules.people_management.ponto.controllers.punch_controller import (
+        _dia_da_tela,
+        dias_com_segmentos,
+    )
+
+    linhas: list[dict] = []
+    comps: list[str] = []
+    sem = 0
+    with SyncSessionLocal() as s:
+        for ano, mes in mes_ano:
+            comp = f"{mes:02d}/{ano}"
+            comps.append(comp)
+            ids = s.execute(
+                text(
+                    "SELECT CAST(employee_id AS TEXT), coalesce(employee_name,'—') FROM time_sheets "
+                    " WHERE reference_month=:m AND reference_year=:y AND coalesce(is_deleted,false)=false "
+                    " ORDER BY 2"
+                ),
+                {"m": mes, "y": ano},
+            ).all()
+            # Quem BATEU no mês e não tem espelho calculado não pode sumir sem aviso: a tela
+            # não fabrica a jornada dele, mas diz quantos são (o cálculo é na aba
+            # «Espelho: calcular/fechar»).
+            sem += int(
+                s.execute(
+                    text(
+                        "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p "
+                        " WHERE date_trunc('month', p.punch_timestamp) = make_date(:y,:m,1) "
+                        "   AND NOT EXISTS (SELECT 1 FROM time_sheets ts "
+                        "        WHERE CAST(ts.employee_id AS TEXT) = CAST(p.employee_id AS TEXT) "
+                        "          AND ts.reference_month=:m AND ts.reference_year=:y "
+                        "          AND coalesce(ts.is_deleted,false)=false)"
+                    ),
+                    {"m": mes, "y": ano},
+                ).scalar()
+                or 0
+            )
+            for eid, nome in ids:
+                esp = ler_espelho(s, eid, mes, ano)
+                if esp is None:
+                    continue
+                for d in dias_com_segmentos(s, esp, mes, ano):
+                    linha = _dia_da_tela(d)
+                    linha["_nome"] = (esp.get("employee_name") or nome or "—").title()
+                    linha["_comp"] = comp
+                    linhas.append(linha)
+    linhas.sort(key=lambda r: (r["_nome"], r["data"]))
+    return linhas, comps, sem
+
+
+async def _tela_apropriacao(db) -> dict:
+    """Apropriação de horas — o que o Sólides mostra: cada par do dia em sua própria coluna."""
+    from starlette.concurrency import run_in_threadpool
+
+    # A competência CORRENTE e a anterior — não «as duas últimas do `time_sheets`»: há espelho
+    # gravado de 10/2026 (3 linhas, mês que não chegou), e ele viraria o padrão do filtro,
+    # abrindo a tela quase vazia. Manaus, porque o mês do DP é o de Manaus.
+    hoje_m = regua.agora_manaus().date()
+    comps = [(hoje_m.year, hoje_m.month)]
+    for _ in range(_APROP_COMPS - 1):
+        ano, mes = comps[-1]
+        comps.append((ano - 1, 12) if mes == 1 else (ano, mes - 1))
+    linhas, labels, sem = await run_in_threadpool(_apropriacao_linhas, comps)
+
+    def _hora(v: str) -> dict:
+        return t(v or "—", 500 if v else 400, _ND if v else "#94A3B8")
+
+    rows = []
+    for r in linhas:
+        quebrado = "intervalo quebrado" in r["obs"]
+        saldo = r.get("saldo_min")
+        rows.append(
+            {
+                "cells": [
+                    t(r["_nome"], 600, _ND),
+                    t(r["dia"], 500),
+                    t(r["dia_semana"]),
+                    _hora(r["entrada1"]),
+                    _hora(r["saida1"]),
+                    _hora(r["entrada2"]),
+                    _hora(r["saida2"]),
+                    t(r["intervalo"] or "—", 400, "#B45309" if quebrado else None),
+                    t(r["total"], 600),
+                    t(r["previsto"]),
+                    b(r["saldo_dia"], "mut" if saldo in (0, None) else ("ok" if saldo > 0 else "bad")),
+                    t(r["obs"] or "", 400, "#B45309" if r["obs"] else None),
+                ],
+                # os dropdowns do ModuleView (scr.filtros): a Pyetra escolhe UMA pessoa e a
+                # competência, como fazia no Sólides.
+                "filtros": {"Colaborador": r["_nome"], "Competência": r["_comp"]},
+            }
+        )
+    return {
+        "title": "Apropriação de horas (dia a dia, par a par)",
+        "sub": (
+            "Cada PAR de batidas do dia na sua própria coluna: um plantão 19:00→02:00 + 03:00→07:17 aparece "
+            "como as duas linhas que o Sólides mostra, com o intervalo entre elas — e não como «19:00 → 07:17». "
+            f"Fonte: `time_sheets` (a MESMA do PDF assinado) + o motor legal de pareamento. Competências: {', '.join(labels) or '—'}. "
+            f"{len(rows)} dia(s)"
+            + (
+                f" · {sem} colaborador(es) bateram ponto e NÃO têm espelho calculado nestas "
+                "competências — ficam de fora (calcule na aba «Espelho: calcular/fechar»); nada é estimado"
+                if sem
+                else ""
+            )
+            + " · dia com 3+ marcações não cabe em 4 colunas: a coluna Obs diz quantas faltam e o espelho traz todas "
+            "· «intervalo quebrado» = falta uma batida do par, e o dia aparece COMO quebrado, nunca como normal."
+        ),
+        "cta": "—",
+        "type": "table",
+        "searchHint": "Buscar colaborador…",
+        "grid": "1.6fr 0.5fr 0.4fr 0.5fr 0.5fr 0.5fr 0.5fr 0.6fr 0.6fr 0.6fr 0.6fr 1.2fr",
+        "cols": [
+            "Colaborador",
+            "Data",
+            "Dia",
+            "Ent.1",
+            "Saí.1",
+            "Ent.2",
+            "Saí.2",
+            "Intervalo",
+            "Trabalhadas",
+            "Previsto",
+            "Saldo",
+            "Obs",
+        ],
+        "filtros": [
+            {"key": "Colaborador", "label": "Colaborador"},
+            # padrão = competência corrente (a 1ª de `comps`); sem isto a tela abriria com dois
+            # meses misturados na mesma grade.
+            {"key": "Competência", "label": "Competência", "padrao": labels[0] if labels else None},
+        ],
+        "rows": rows
+        or [{"cells": [t("Nenhum espelho calculado nas últimas competências", 500)] + [t("—")] * 11}],
+    }
+
+
 async def telas(db, out: dict | None = None) -> dict:
     mine: dict = {}
     try:
@@ -870,6 +1024,7 @@ async def telas(db, out: dict | None = None) -> dict:
         ("feriado-novo", "Novo feriado", lambda: _tela_feriado_novo(op)),
         ("cartao-ponto-lote", "Cartão de ponto em lote", lambda: _tela_cartao_lote(op)),
         ("ausencias-dashboard", "Ausências", lambda: _tela_ausencias(db)),
+        ("apropriacao-horas", "Apropriação de horas", lambda: _tela_apropriacao(db)),
     ]
     for tid, titulo, fn in montagens:
         try:

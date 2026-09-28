@@ -733,43 +733,134 @@ class TimeRecordService:
     # UPDATE RECORD
     # =========================================================================
 
-    async def _auditar_correcao_tipo(self, *, row, de: str, para: str, quem: str, motivo: str) -> None:
-        """Grava QUEM corrigiu o tipo de uma batida, DE que valor PARA qual e por quê.
+    async def _exigir_autor_real(self, updated_by: str | None, oque: str) -> None:
+        """Nenhuma alteração em batida entra anônima nem com autor inventado.
 
-        Mesma tabela e mesmo formato das 24 correções aplicadas em 23/08/2026 — quem
-        auditar o ponto vê a série inteira num lugar só, com `action='ponto.tipo_corrigido'`.
+        Extraído em 28/09/2026 (P7): a correção de TIPO já tinha esta trava e a decisão de
+        aprovar/reprovar não tinha nenhuma. Duas portas para o mesmo documento com réguas
+        diferentes é como a mais frouxa vence — aprovar não pode ser mais fácil que corrigir.
 
-        Diferente do log de tentativa falha, este NÃO engole exceção: se a auditoria não
-        entrar, a correção não pode acontecer. Alterar documento trabalhista sem rastro é
-        pior que não alterar.
+        `updated_by` truthy não basta: em 14/09/2026 um teste passou a string "0" e a correção
+        foi aceita, gravando em `gp_audit_logs` uma alteração de ponto com autor "0" — um usuário
+        que não existe. Trilha com autor inexistente não é trilha. O autor tem que SER alguém.
+        """
+        if not updated_by:
+            raise ValueError(
+                f"{oque} exige identificar quem está alterando — "
+                "é documento trabalhista e a alteração fica registrada."
+            )
+        existe = (
+            await self.db.execute(
+                text("SELECT 1 FROM users WHERE id::text = :u LIMIT 1"),
+                {"u": str(updated_by)},
+            )
+        ).scalar()
+        if not existe:
+            raise ValueError(
+                f"Quem está alterando ({updated_by!r}) não é um usuário do sistema — "
+                "alteração de ponto precisa de autor real na auditoria."
+            )
+
+    async def _auditar_ponto(self, *, action: str, row, desc: str, quem: str, changes: dict, extra: dict) -> None:
+        """Escreve UMA linha de trilha sobre UMA batida em `gp_audit_logs`.
+
+        Extraído em 28/09/2026 (P7) porque a aprovação do dia precisava do mesmo INSERT de 14
+        colunas que a correção de tipo já fazia; duas cópias do mesmo INSERT é a forma mais
+        barata de as duas trilhas divergirem de formato e o leitor (`GET .../historico`) só
+        entender uma. Um lugar só escreve, um lugar só lê.
+
+        NÃO engole exceção, de propósito: se a auditoria não entrar, o ato não pode acontecer.
+        Alterar documento trabalhista sem rastro é pior que não alterar.
         """
         import json as _json
         import uuid as _uuid
+
+        # `actor_user_name` recebe NOME, não o id. O código punha o mesmo `updated_by` nas duas
+        # colunas, e nas 24 linhas de `ponto.tipo_corrigido` que existem no banco o campo diz
+        # «Jordan Jesus» só porque elas foram inseridas por SQL à mão, não por aqui — ou seja,
+        # este caminho nunca havia sido exercido. Medido em 28/09/2026, na primeira chamada real:
+        # o histórico devolveu `"por": "1269276e-e34d-4e51-9bb9-df16fc648077"`. Todas as outras
+        # séries da tabela (`ponto.foto_vista`, `ponto.tentativa_falhou`) trazem nome ou e-mail;
+        # um UUID na coluna que a tela mostra como "quem" não é trilha legível, e trilha que
+        # ninguém lê é igual a trilha que não existe.
+        nome = (
+            await self.db.execute(
+                text("SELECT coalesce(nullif(name,''), email) FROM users WHERE id::text = :u LIMIT 1"),
+                {"u": str(quem)},
+            )
+        ).scalar() or str(quem)
 
         await self.db.execute(
             text(
                 "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, "
                 "  description, source_module, actor_user_id, actor_user_name, "
                 "  actor_user_role, actor_user_module, related_funcionario_id, changes, extra_data) "
-                "VALUES (:id, now(), 'ponto.tipo_corrigido', 'gp_clock_punches', :pid, :desc, "
-                "  'people_management.hr', :quem, :quem, 'dp', 'ponto', :eid, "
+                "VALUES (:id, now(), :action, 'gp_clock_punches', :pid, :desc, "
+                "  'people_management.hr', :quem, :nome, 'dp', 'ponto', :eid, "
                 "  CAST(:ch AS jsonb), CAST(:ex AS jsonb))"
             ),
             {
                 "id": str(_uuid.uuid4()),
+                "action": action,
                 "pid": str(row["punch_id"]),
-                "desc": f"Tipo de batida corrigido: {de} -> {para}",
-                "quem": quem[:120],
+                "desc": desc,
+                "quem": str(quem)[:36],
+                "nome": str(nome)[:120],
                 "eid": str(row["employee_id"]),
-                "ch": _json.dumps({"punch_type": {"de": de, "para": para}}, ensure_ascii=False),
-                "ex": _json.dumps(
-                    {
-                        "motivo": motivo or "(não informado)",
-                        "horario_preservado": str(row["punch_timestamp"]),
-                        "via": "PATCH /time-records — correção do DP",
-                    },
-                    ensure_ascii=False,
-                ),
+                "ch": _json.dumps(changes, ensure_ascii=False),
+                "ex": _json.dumps(extra, ensure_ascii=False),
+            },
+        )
+
+    async def _auditar_correcao_tipo(self, *, row, de: str, para: str, quem: str, motivo: str) -> None:
+        """Grava QUEM corrigiu o tipo de uma batida, DE que valor PARA qual e por quê.
+
+        Mesma tabela e mesmo formato das 24 correções aplicadas em 23/08/2026 — quem
+        auditar o ponto vê a série inteira num lugar só, com `action='ponto.tipo_corrigido'`.
+        """
+        await self._auditar_ponto(
+            action="ponto.tipo_corrigido",
+            row=row,
+            desc=f"Tipo de batida corrigido: {de} -> {para}",
+            quem=quem,
+            changes={"punch_type": {"de": de, "para": para}},
+            extra={
+                "motivo": motivo or "(não informado)",
+                "horario_preservado": str(row["punch_timestamp"]),
+                "via": "PATCH /time-records — correção do DP",
+            },
+        )
+
+    #: Decisão do DP sobre a batida → rótulo humano na trilha. Chave é o valor gravado em
+    #: `gp_clock_punches.status`; só estes três são ATO de aprovação. Os outros valores que a
+    #: coluna aceita (`normal`, `fora_local`, `pending_contingencia`, `pendente_de_conferencia`)
+    #: são estado que o sistema escreve, não juízo de quem confere — não geram linha de decisão.
+    _DECISOES = {"approved": "Aprovada", "rejected": "Reprovada", "pending": "Devolvida para pendente"}
+
+    async def _auditar_decisao(self, *, row, de: str, para: str, quem: str, observacao: str) -> None:
+        """Grava a APROVAÇÃO/REPROVAÇÃO de uma batida com a observação de quem decidiu.
+
+        É o «Histórico de Observação» do Sólides sem tabela nova (P7, 28/09/2026). Antes disto o
+        status mudava em silêncio: `update_record` já aceitava `status` e fazia o UPDATE, mas
+        ninguém registrava QUEM aprovou nem por quê — a tela mostrava `approved` em 7174 batidas
+        sem um único autor. Numa reclamatória, estado sem autor não é trilha.
+
+        O `status` da batida NÃO é porta de cálculo (decisão do dono): `pending` continua contando
+        na folha. Isto aqui é trilha e estado visível — por isso a função grava e não valida
+        efeito a jusante.
+        """
+        await self._auditar_ponto(
+            action="ponto.decidida",
+            row=row,
+            desc=f"Batida {self._DECISOES.get(para, para)} pelo DP (estava «{de or '—'}»)",
+            quem=quem,
+            changes={"status": {"de": de, "para": para}},
+            extra={
+                "observacao": observacao or "(sem observação)",
+                "decisao": para,
+                "dia_da_batida": str(row["punch_timestamp"])[:10],
+                "horario_preservado": str(row["punch_timestamp"]),
+                "via": "PATCH /time-records — decisão do DP",
             },
         )
 
@@ -804,9 +895,32 @@ class TimeRecordService:
         sets = []
         params: dict[str, Any] = {"rid": str(row["punch_id"]), "updated_at": now}
 
+        # ── DECISÃO DO DP: APROVAR / REPROVAR A BATIDA ──────────────────────
+        #
+        # ⚠️ P7 (28/09/2026). Antes desta frente este ramo eram TRÊS LINHAS sem autor e sem
+        # trilha: qualquer mudança de status entrava anônima. Medido no banco: 7174 batidas
+        # `approved` e 4169 `pending` — 11343 estados de conferência e ZERO linhas de quem
+        # conferiu (`gp_audit_logs` tinha 88 linhas de batida, nenhuma de decisão). Estado sem
+        # autor não é trilha; numa reclamatória vale menos que nenhuma.
+        #
+        # Mesmas travas da correção de tipo, pelo mesmo motivo (é o MESMO documento):
+        # autor obrigatório, autor que EXISTE, e a linha de auditoria escrita na mesma
+        # transação — se a trilha não entra, a decisão não acontece.
         if "status" in data and data["status"] is not None:
-            sets.append("status = :new_status")
-            params["new_status"] = str(data["status"])
+            novo_status = str(data["status"])
+            status_antes = str(row["status"] or "")
+            if novo_status != status_antes:
+                await self._exigir_autor_real(updated_by, "Decidir/alterar o status de uma batida")
+                sets.append("status = :new_status")
+                params["new_status"] = novo_status
+                if novo_status in self._DECISOES:
+                    await self._auditar_decisao(
+                        row=row,
+                        de=status_antes,
+                        para=novo_status,
+                        quem=str(updated_by),
+                        observacao=str(data.get("motivo") or "").strip(),
+                    )
 
         # ── CORREÇÃO DO TIPO DA BATIDA ──────────────────────────────────────
         #
@@ -831,27 +945,7 @@ class TimeRecordService:
             novo_tipo = str(data["punch_type"]).strip().lower()
             if novo_tipo not in _TIPOS_BATIDA_VALIDOS:
                 raise ValueError(f"Tipo de batida inválido: {novo_tipo!r}. Válidos: {sorted(_TIPOS_BATIDA_VALIDOS)}")
-            if not updated_by:
-                raise ValueError(
-                    "Correção de tipo de batida exige identificar quem está alterando — "
-                    "é documento trabalhista e a alteração fica registrada."
-                )
-            # `updated_by` truthy não basta: em 14/09/2026 um teste passou a string "0" e a
-            # correção foi aceita, gravando em `gp_audit_logs` uma alteração de ponto com
-            # autor "0" — um usuário que não existe. Trilha com autor inexistente não é
-            # trilha; numa reclamatória ela vale menos que nenhuma. O autor tem que SER
-            # alguém.
-            _existe = (
-                await self.db.execute(
-                    text("SELECT 1 FROM users WHERE id::text = :u LIMIT 1"),
-                    {"u": str(updated_by)},
-                )
-            ).scalar()
-            if not _existe:
-                raise ValueError(
-                    f"Quem está corrigindo ({updated_by!r}) não é um usuário do sistema — "
-                    "a correção de ponto precisa de autor real na auditoria."
-                )
+            await self._exigir_autor_real(updated_by, "Correção de tipo de batida")
             tipo_antes = str(row["punch_type"] or "").lower()
             if novo_tipo != tipo_antes:
                 sets.append("punch_type = :novo_tipo")
@@ -908,6 +1002,133 @@ class TimeRecordService:
 
         # Return updated record
         return await self.get_by_id(str(row["punch_id"]))
+
+    # =========================================================================
+    # P7 — TRILHA E DECISÃO POR DIA
+    # =========================================================================
+
+    #: Status que a decisão do DP NUNCA toca, qualquer que seja a decisão.
+    #:
+    #: Só UM valor mora aqui: `pendente_de_conferencia` é a RECONFERÊNCIA DO ROSTO no servidor,
+    #: feita pelo sistema e não pelo DP — aprovar o dia não pode carimbar rosto que ninguém
+    #: conferiu (e é por isso que essa batida também está fora do AFD, em
+    #: `rep_p.gerar_afd_desde_corte`).
+    #:
+    #: ⚠️ `approved`/`rejected` NÃO entram aqui, e a primeira versão desta frente os tinha posto:
+    #: medido em 28/09/2026, depois de aprovar o dia de teste, reprovar o MESMO dia devolveu
+    #: `"batidas": 0` e HTTP 200 — o DP tinha uma decisão irreversível e a resposta dizia "ok".
+    #: A lista estava respondendo DUAS perguntas diferentes com um só valor: "o que a fila ainda
+    #: precisa mostrar" (aí `approved`/`rejected` de fato saem — ver `_FILA_FORA` no builder) e
+    #: "o que esta decisão pode alterar" (aí não saem: mudar de ideia sobre uma conferência é
+    #: parte do trabalho, e é justamente o ato que mais precisa ficar na trilha).
+    _NUNCA_DECIDIR = ("pendente_de_conferencia",)
+
+    async def get_historico(self, record_id: str) -> list[dict[str, Any]]:
+        """Data | Observação | Tipo de toda decisão e correção já feita nesta batida.
+
+        Lê `gp_audit_logs` — que em 28/09/2026 tinha 88 linhas sobre batida e ZERO leitores: a
+        trilha existia e era invisível, o que na prática é igual a não existir. Este é o leitor.
+
+        `entity_id` guarda o `punch_id`, então a busca aceita tanto o punch_id quanto o id da
+        linha — o mesmo que `update_record` já aceita, para a tela não precisar saber a diferença.
+        """
+        row = (
+            await self.db.execute(
+                text(
+                    "SELECT punch_id FROM gp_clock_punches WHERE punch_id = :rid OR id::text = :rid LIMIT 1"
+                ),
+                {"rid": str(record_id)},
+            )
+        ).first()
+        if not row:
+            return []
+        linhas = (
+            await self.db.execute(
+                text(
+                    "SELECT timestamp, action, description, actor_user_name, changes, extra_data "
+                    "FROM gp_audit_logs "
+                    "WHERE entity = 'gp_clock_punches' AND entity_id = :pid "
+                    "ORDER BY timestamp DESC"
+                ),
+                {"pid": str(row[0])},
+            )
+        ).mappings().all()
+        return [
+            {
+                "data": lin["timestamp"].strftime("%d/%m/%Y %H:%M") if lin["timestamp"] else "—",
+                # A observação do DP mora em extra_data; `motivo` é o nome do campo na correção
+                # de tipo e `observacao` na decisão — um leitor, os dois nomes, porque as duas
+                # séries são a MESMA trilha para quem audita.
+                "observacao": (lin["extra_data"] or {}).get("observacao")
+                or (lin["extra_data"] or {}).get("motivo")
+                or "—",
+                "tipo": lin["description"] or lin["action"],
+                "por": lin["actor_user_name"] or "—",
+                "mudou": lin["changes"] or {},
+            }
+            for lin in linhas
+        ]
+
+    async def decidir_dia(
+        self,
+        *,
+        employee_id: str,
+        dia: str,
+        decisao: str,
+        observacao: str,
+        updated_by: str | None,
+    ) -> dict[str, Any]:
+        """Aprova/reprova TODAS as batidas de UM dia de UMA pessoa. Decisão do dono: é por DIA.
+
+        ⚠️ `dia` é a data da BATIDA, não a da escala. Turno noturno cruza a meia-noite e fecha em
+        dois dias (medido: 87 de 346 dias de 09/2026 têm `entrada > saida`), então um par noturno
+        tem a entrada no dia D e a saída em D+1. Isso é de propósito e não é bug: «segmento
+        aprovado = par com as DUAS batidas aprovadas», então o segmento noturno só fica aprovado
+        quando o DP aprovar os dois dias. Nenhuma régua de pareamento nova mora aqui — esta função
+        não pareia nada, o motor é `espelho_service._parear`.
+
+        Não escreve nada direto: chama `update_record` por batida, que é quem exige autor real e
+        grava a trilha. Uma porta, uma régua.
+        """
+        if decisao not in self._DECISOES:
+            raise ValueError(f"Decisão inválida: {decisao!r}. Válidas: {sorted(self._DECISOES)}")
+        # `dia` chega como texto ISO da rota e vai para o banco como `date` DE VERDADE: o asyncpg
+        # infere o tipo do parâmetro pelo CAST e recusa a string com «'str' object has no
+        # attribute 'toordinal'» — 500 medido em 28/09/2026 na primeira chamada real. Converter
+        # aqui também valida a data: dia impossível falha FECHADO, antes de decidir nada.
+        dia_d = date.fromisoformat(str(dia)[:10])
+        pendentes = (
+            await self.db.execute(
+                text(
+                    "SELECT punch_id FROM gp_clock_punches "
+                    "WHERE employee_id = :emp AND date(punch_timestamp) = :dia "
+                    # `<> :decisao` é o que dá idempotência: reaplicar a mesma decisão acha 0
+                    # linhas e não escreve trilha repetida. Mudar de approved para rejected acha
+                    # as duas, porque mudar de ideia é ato legítimo — e auditado.
+                    "  AND coalesce(status,'') <> :decisao "
+                    "  AND NOT (coalesce(status,'') = ANY(:nunca)) "
+                    "ORDER BY punch_timestamp"
+                ),
+                {
+                    "emp": str(employee_id),
+                    "dia": dia_d,
+                    "decisao": decisao,
+                    "nunca": list(self._NUNCA_DECIDIR),
+                },
+            )
+        ).scalars().all()
+        for pid in pendentes:
+            await self.update_record(
+                record_id=str(pid),
+                data={"status": decisao, "motivo": observacao},
+                updated_by=updated_by,
+            )
+        return {
+            "employee_id": str(employee_id),
+            "dia": str(dia),
+            "decisao": decisao,
+            "batidas": len(pendentes),
+        }
 
     # =========================================================================
     # MONTHLY SUMMARY

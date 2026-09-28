@@ -304,7 +304,16 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
             ]
         )
     )
-    story.append(_titulo("TOTAIS DO PERÍODO", st))
+    # 28/09/2026 — os totais são SEMPRE do mês civil: `ler_espelho` filtra `time_sheets` por
+    # reference_month/reference_year (espelho_ponto_service.py:41) e nenhum número desta caixa
+    # muda quando a tabela de dias troca de janela. Com `periodo_kit` presente a tabela acima tem
+    # 31 dias de 26/08 a 25/09 (6 deles de agosto) e o rótulo "TOTAIS DO PERÍODO" fazia o PDF
+    # somar um período embaixo de outro — coerente na aparência, errado. Rotular em vez de omitir
+    # porque o número é fato apurado pelo motor; o que faltava era dizer de qual janela ele é.
+    # Derivado de `periodo_kit` (e não de uma flag nova) para pegar TODO chamador que troca a
+    # janela — inclusive o kit do GEDEON, que já tinha o mesmo defeito e é território alheio.
+    rot_tot = f"TOTAIS DE {mes:02d}/{ano} (MÊS CIVIL)" if esp.get("periodo_kit") else "TOTAIS DO PERÍODO"
+    story.append(_titulo(rot_tot, st))
     story.append(t_tot)
 
     # nota de anomalias (se houver)

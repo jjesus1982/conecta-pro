@@ -45,6 +45,14 @@ EXTRA_MENU: list[dict] = [
         "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
     },
     {"id": "ged-assinaturas-docs", "label": "GED — documentos a assinar (por pasta)", "icon": "M3 3v18h18"},
+    # P7 (28/09/2026) — a fila de conferência do DP. Tem que ser entrada de menu própria: a tela
+    # `ponto` é a lista de BATIDAS (LIMIT 200 por timestamp, tudo misturado) e a conferência é por
+    # DIA. Medido: 832 dias-pessoa pendentes desde 01/09 — sem unidade "dia" não se confere nada.
+    {
+        "id": "ponto-fila-aprovacao",
+        "label": "Ponto · Fila de aprovação (por dia)",
+        "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+    },
 ]
 
 # GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
@@ -140,6 +148,70 @@ def _corrigir_batida(r):
             ],
         }
     ]
+
+
+def _acoes_batida(r):
+    """Corrigir + Aprovar + Reprovar + Histórico, na linha da batida (P7, 28/09/2026).
+
+    A Pyetra fazia isto no Sólides: confere a batida, decide, e escreve uma observação que fica.
+    Aqui a decisão vai por DIA (decisão do dono: aprovar o dia aprova as batidas dele), por isso
+    Aprovar/Reprovar chamam `POST .../time-records/dia/decidir` com a pessoa e a data DESTA linha
+    — clicar numa batida decide o dia dela, e não só ela. O texto do modal diz isso, porque um
+    botão que faz mais do que parece é a forma mais barata de aprovar sem querer.
+
+    O Histórico é `readOnly` com um campo por evento: não existe tabela dentro de modal, e a
+    trilha (`gp_audit_logs`) só tem valor se alguém LÊ — antes desta frente tinha 88 linhas de
+    batida e zero leitores.
+    """
+    pid, nome, quando = r[4], r[0], r[1]
+    if not pid:
+        return []
+    emp, dia = r[12], r[13]
+    base = _corrigir_batida(r) or []
+
+    def _decidir(dec, lbl, estilo, pergunta):
+        return {
+            "title": f"{lbl} o dia de {nome} — {quando}",
+            "sub": f"A aprovação é por DIA: isto vale para TODAS as batidas de {nome} em "
+                   f"{(dia or '')[8:10]}/{(dia or '')[5:7]}, não só esta. Turno noturno cruza a "
+                   "meia-noite e fecha em dois dias — o segmento só fica aprovado quando os dois "
+                   "dias estiverem. O horário não muda; a folha não muda.",
+            "endpoint": f"/api/v1/people-management/hr/time-records/dia/decidir"
+                        f"?employee_id={emp}&dia={dia}&decisao={dec}",
+            "method": "POST",
+            "btnLabel": lbl,
+            "submitLabel": f"{lbl} o dia",
+            "btnStyle": estilo,
+            "okMsg": f"Dia {lbl.lower()}. Recarregue.",
+            "fields": [
+                {"key": "observacao", "label": pergunta, "type": "textarea", "span": "span 2",
+                 "max": 200, "ph": "Fica no histórico da batida, com seu nome e a data."},
+            ],
+        }
+
+    acoes = [
+        _decidir("approved", "Aprovar", "primary", "Observação (opcional, máx. 200)"),
+        _decidir("rejected", "Reprovar", "danger", "Por que está reprovando? (vai para o histórico)"),
+    ]
+    hist = r[14] or []
+    acoes.append(
+        {
+            "title": f"Histórico de observação — {nome}, {quando}",
+            "sub": "Quem mexeu nesta batida, quando e por quê. Escrito por quem decidiu; "
+                   "ninguém edita depois.",
+            "btnLabel": "Histórico",
+            "btnStyle": "outline",
+            "readOnly": True,
+            "fields": [
+                {"key": f"h{i}", "span": "span 2",
+                 "label": f"{h.get('d') or '—'} · {h.get('t') or '—'} · {h.get('q') or '—'}",
+                 "value": h.get("o") or "—"}
+                for i, h in enumerate(hist)
+            ] or [{"key": "h0", "span": "span 2", "label": "Sem observação ainda",
+                   "value": "Nenhuma decisão ou correção registrada nesta batida."}],
+        }
+    )
+    return base + acoes
 
 
 async def build(db) -> dict:
@@ -562,7 +634,8 @@ async def build(db) -> dict:
             "Ponto eletrônico",
             "Cada batida com a SELFIE do momento — dá para ver farda, barba e se a pessoa "
             "está no posto. Clique na foto para ampliar. A linha errada se corrige aqui, "
-            "com motivo.",
+            "com motivo. Aprovar/Reprovar vale para o DIA inteiro da pessoa — para conferir "
+            "dia a dia sem se perder, use «Ponto · Fila de aprovação».",
             "—",
             ["Foto", "Colaborador", "Data/hora", "Tipo", "No posto", "Origem", "Status"],
             "0.5fr 1.5fr 1fr 1fr 1.1fr 0.8fr 0.9fr",
@@ -570,7 +643,16 @@ async def build(db) -> dict:
             "coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—'), "
             "p.punch_id, coalesce(p.device_type,'—'), "
             "coalesce(p.foto_capturada_url,''), p.dentro_geofence, p.distancia_posto_metros, "
-            "coalesce(p.posto_nome,''), p.facial_match, p.facial_confidence "
+            "coalesce(p.posto_nome,''), p.facial_match, p.facial_confidence, "
+            # P7 — r[12]=pessoa, r[13]=DIA da batida: a decisão é por dia e precisa dos dois.
+            # r[14]=histórico já resolvido no SQL (json_agg) para o modal não fazer N chamadas.
+            "CAST(p.employee_id AS TEXT), to_char(p.punch_timestamp,'YYYY-MM-DD'), "
+            "(SELECT json_agg(json_build_object("
+            "   'd', to_char(a.timestamp,'DD/MM/YYYY HH24:MI'), 't', a.description, "
+            "   'q', a.actor_user_name, "
+            "   'o', coalesce(a.extra_data->>'observacao', a.extra_data->>'motivo','—')"
+            " ) ORDER BY a.timestamp DESC) FROM gp_audit_logs a "
+            "  WHERE a.entity='gp_clock_punches' AND a.entity_id = p.punch_id) "
             "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id "
             "ORDER BY p.punch_timestamp DESC NULLS LAST LIMIT 200",
             lambda r: [
@@ -585,7 +667,7 @@ async def build(db) -> dict:
                 t((r[5] or "—").capitalize()),
                 b(*_PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))),
             ],
-            actionsfn=_corrigir_batida,
+            actionsfn=_acoes_batida,
             # Filtra por posto e por origem — 200 batidas misturadas não se confere.
             filtrofn=lambda r: {
                 "posto": r[9] or "(sem posto)",
@@ -599,6 +681,115 @@ async def build(db) -> dict:
             {"key": "origem", "label": "Origem", "todos": "Todas"},
         ]
         out["ponto"]["filterUnit"] = "batida(s)"
+
+    # ── P7 · Fila de aprovação POR DIA/PESSOA (28/09/2026) ────────────────────
+    #
+    # A tela `ponto` acima é a lista de BATIDAS: `LIMIT 200 ORDER BY punch_timestamp DESC`, tudo
+    # misturado. Medido em 28/09/2026: 832 dias-pessoa aguardando conferência desde 01/09 e 1712
+    # batidas `pending`. Nessa tela as 200 linhas mais recentes não chegam nem a cobrir os últimos
+    # 4 dias — "aprovar cada dia" simplesmente não é operável por ali.
+    #
+    # Aqui a LINHA é o dia da pessoa, com a sequência de batidas visível para se conferir sem
+    # abrir nada, e um botão que decide o dia todo. Não há régua de pareamento nenhuma nesta
+    # tela — de propósito: já existem TRÊS nesta casa e elas discordam em 59 pessoa×dia; uma
+    # quarta seria o defeito, não a entrega. O que se mostra aqui é o BRUTO (hora e tipo, em
+    # ordem), que não depende de régua.
+    #: Fora da fila = já decidido, ou é a reconferência de ROSTO no servidor (que é o sistema
+    #: conferindo, não o DP). Uma lista só: a contagem do subtítulo e as linhas da tabela têm que
+    #: sair da MESMA régua, senão o cabeçalho diz um número e a tela mostra outro.
+    _FILA_FORA = "'approved','rejected','pendente_de_conferencia'"
+    #: Hoje em MANAUS, não em UTC: `punch_timestamp` é hora de Manaus (provado por
+    #: comportamento nesta casa), então comparar com o "hoje" do processo em UTC marcaria o dia
+    #: errado por 4 horas todas as noites — exatamente na faixa do turno noturno.
+    _HOJE = (await _scalar(db, "SELECT to_char(now() AT TIME ZONE 'America/Manaus','YYYY-MM-DD')")) or ""
+    _FILA_CONTAGEM_SQL = (
+        "SELECT count(*) FROM (SELECT 1 FROM gp_clock_punches "
+        f"WHERE status NOT IN ({_FILA_FORA}) "
+        "GROUP BY employee_id, date(punch_timestamp)) z"
+    )
+    _FILA_SQL = f"""
+        SELECT coalesce(e.nome,'—') nome, to_char(p.punch_timestamp,'YYYY-MM-DD') dia,
+               count(*) qtd,
+               string_agg(to_char(p.punch_timestamp,'HH24:MI') || ' ' ||
+                          coalesce(p.punch_type,'?'), ' · ' ORDER BY p.punch_timestamp) seq,
+               coalesce(max(p.posto_nome),'') posto,
+               CAST(p.employee_id AS TEXT) emp,
+               count(*) FILTER (WHERE p.dentro_geofence IS FALSE) fora
+          FROM gp_clock_punches p
+          LEFT JOIN employees e ON e.id = p.employee_id
+         WHERE p.status NOT IN ({_FILA_FORA})
+         GROUP BY p.employee_id, e.nome, to_char(p.punch_timestamp,'YYYY-MM-DD')
+         ORDER BY dia DESC, nome
+         LIMIT 300
+    """
+
+    def _acoes_dia(r):
+        nome, dia, emp = r[0], r[1], r[5]
+        dma = f"{dia[8:10]}/{dia[5:7]}/{dia[0:4]}"
+
+        def _a(dec, lbl, estilo, pergunta):
+            return {
+                "title": f"{lbl} o dia {dma} de {nome}",
+                "sub": f"{r[2]} batida(s): {r[3]}. Vale para o dia inteiro. "
+                       "Turno noturno cruza a meia-noite e fecha em DOIS dias — o segmento só "
+                       "fica aprovado quando os dois dias estiverem. O horário não muda e a "
+                       "folha não muda: aprovação é trilha e estado, não cálculo.",
+                "endpoint": "/api/v1/people-management/hr/time-records/dia/decidir"
+                            f"?employee_id={emp}&dia={dia}&decisao={dec}",
+                "method": "POST",
+                "btnLabel": lbl,
+                "submitLabel": f"{lbl} o dia {dma}",
+                "btnStyle": estilo,
+                "okMsg": f"Dia {lbl.lower()}. Recarregue.",
+                "fields": [
+                    {"key": "observacao", "label": pergunta, "type": "textarea", "span": "span 2",
+                     "max": 200, "ph": "Fica no histórico de cada batida, com seu nome e a data."},
+                ],
+            }
+
+        return [
+            _a("approved", "Aprovar dia", "primary", "Observação (opcional, máx. 200)"),
+            _a("rejected", "Reprovar dia", "danger", "Por que está reprovando?* (vai para o histórico)"),
+        ]
+
+    await safe(
+        "ponto-fila-aprovacao",
+        tbl(
+            "Ponto · Fila de aprovação (por dia)",
+            f"{await _scalar(db, _FILA_CONTAGEM_SQL)}"
+            " dia(s)-pessoa aguardando conferência. Um clique decide o DIA. A batida do rosto "
+            "ainda em reconferência no servidor (`pendente_de_conferencia`) NÃO aparece aqui: "
+            "aquilo é o sistema conferindo, não você.",
+            "—",
+            ["Colaborador", "Dia", "Batidas", "Sequência do dia", "Posto", "Fora do local"],
+            "1.6fr 0.8fr 0.6fr 2.4fr 1.4fr 0.9fr",
+            _FILA_SQL,
+            lambda r: [
+                t(r[0] or "—", 600, "#0F1B3A", initials(r[0] or "")),
+                # O dia de HOJE aparece marcado. A primeira renderização desta tela trouxe no
+                # topo «28/09 · 03:00 saida_almoco · 04:00 retorno_almoco · 07:00 saida»: um
+                # noturno em curso, sem a saída ainda. Não escondo a linha — o fato existe e
+                # esconder fato é pior —, mas conferir um dia que não terminou é assinar o que
+                # ainda vai mudar, e a coluna tem que dizer isso antes do clique.
+                t(f"{r[1][8:10]}/{r[1][5:7]}" + (" · em aberto" if r[1] == _HOJE else "")),
+                t(str(r[2])),
+                t(r[3] or "—"),
+                t(r[4] or "(sem posto)"),
+                b(*(("—", "info") if not r[6] else (f"{r[6]} batida(s)", "warning"))),
+            ],
+            actionsfn=_acoes_dia,
+            filtrofn=lambda r: {
+                "dia": f"{r[1][8:10]}/{r[1][5:7]}",
+                "posto": r[4] or "(sem posto)",
+            },
+        ),
+    )
+    if out.get("ponto-fila-aprovacao"):
+        out["ponto-fila-aprovacao"]["filtros"] = [
+            {"key": "dia", "label": "Dia", "todos": "Todos os dias"},
+            {"key": "posto", "label": "Posto", "todos": "Todos os postos"},
+        ]
+        out["ponto-fila-aprovacao"]["filterUnit"] = "dia(s)-pessoa"
 
     # Ponto-espelho (Portaria 671) — SOBRESCREVE p/ formatar Atraso (min) como inteiro (base exibia '0.0')
     await safe(
@@ -763,7 +954,8 @@ async def build(db) -> dict:
 
 # frente 05 (menu + /action/vigilante-*) e frente 10 (menu do uniforme/EPI; as ações do 10 vivem
 # no router incluído por equipamentos.py). O registry lê `router` deste módulo — é o da frente 05.
-from ._frente_05 import MENU as _menu_05, router as router  # noqa: E402,F401 — frente 05
+from ._frente_05 import MENU as _menu_05  # noqa: E402,F401 — frente 05
+from ._frente_05 import router as router  # noqa: E402 — frente 05 (ruff I001 partiu o import em dois; o noqa do original ficou só na 1ª linha)
 from ._frente_10 import MENU_GESTAO as _menu_10  # noqa: E402 — frente 10
 
 EXTRA_MENU.extend(_menu_05)  # frente 05

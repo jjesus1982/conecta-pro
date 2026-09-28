@@ -159,6 +159,15 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
     integridade sobre o que não está confirmado, e o NSR não tem como voltar atrás. Quando a
     conferência aprova, a batida deixa de ser pendente e a varredura seguinte a pega — sem lacuna
     de NSR, porque a linha só é numerada no momento em que é escrita.
+
+    ⚠️ P7 (28/09/2026): `rejected` entra na MESMA exclusão, e entra ANTES de existir. Medido
+    agora: `SELECT status, count(*) FROM gp_clock_punches GROUP BY 1` = approved 7174, pending
+    4169, normal 421, fora_local 237, pending_contingencia 109, pendente_de_conferencia 2,
+    regular 2 — **zero `rejected`**. A partir desta frente o DP reprova o dia e a batida passa a
+    poder receber esse valor; se a exclusão só fosse escrita depois, a primeira reprovação já
+    teria virado linha de AFD antes de alguém perceber, e AFD não volta atrás (NSR é sequencial
+    e inalterável). Pelo mesmo motivo a lista é NOT IN e não uma igualdade: é a régua "batida que
+    o DP ainda pode desfazer não é memória de marcação", não uma exceção pontual.
     """
     pend = (await db.execute(text("""
         SELECT p.punch_id, p.device_type, p.is_offline, p.punch_timestamp, e.empresa_id::text emp,
@@ -167,7 +176,7 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
         JOIN employees e ON e.id = p.employee_id
         LEFT JOIN afd_records a ON a.punch_id = p.punch_id
         WHERE p.punch_timestamp >= :corte AND a.id IS NULL
-          AND p.status <> 'pendente_de_conferencia'   -- frente 02
+          AND p.status NOT IN ('pendente_de_conferencia', 'rejected')  -- frente 02 + P7
         ORDER BY p.punch_timestamp, p.id"""), {"corte": CORTE})).mappings().all()
     geradas, sem_cpf, sem_empresa = 0, set(), set()
     grupos: dict[str, list] = defaultdict(list)

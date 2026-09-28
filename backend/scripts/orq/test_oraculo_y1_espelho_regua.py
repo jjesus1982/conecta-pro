@@ -204,9 +204,14 @@ def _verbas(lista) -> dict[str, float]:
     return out
 
 
-def _regua_anterior(pares: list[dict], janelas: list | None = None) -> list[dict]:
+def _regua_anterior(pares: list[dict], janelas: list | None = None, orfaos: list | None = None) -> list[dict]:
     """O `_agrupar_turnos` que existia ANTES da Y1: gap < 180 min agrupa; o turno é datado na
-    data civil da 1ª entrada. Neutralizar a Y1 é exatamente isto — desfazer a frente."""
+    data civil da 1ª entrada. Neutralizar a Y1 é exatamente isto — desfazer a frente.
+
+    `orfaos` entrou na assinatura em 28/09/2026 (P6a, segmentos): este monkeypatch substitui
+    `_agrupar_turnos`, então precisa ACEITAR os mesmos argumentos — sem isto o A/B morre com
+    TypeError, e TypeError na medição não é desvio medido, é oráculo que não rodou. Ignorado
+    de propósito: a régua anterior não datava órfão, e o A/B mede DINHEIRO, que não os usa."""
     turnos: list[dict] = []
     atual: list[dict] = []
 
