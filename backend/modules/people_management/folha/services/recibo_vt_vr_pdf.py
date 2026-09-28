@@ -1,8 +1,11 @@
 """Recibo de Vale-Transporte e Vale-Refeição (padrão-ouro Conecta Mais).
 
-Documento próprio (separado do holerite) que registra os benefícios VT/VR concedidos
-na competência, a co-participação do funcionário (descontada) e o líquido recebido,
-com declaração de recebimento e assinaturas (funcionário digital via Portal + empresa).
+Documento próprio (separado do holerite) que registra os benefícios VT/VR CONCEDIDOS
+na competência (unitário × quantidade), com declaração de recebimento e assinaturas
+(funcionário digital via Portal + empresa).
+
+28/09/2026 (Pyetra, DP): o recibo NÃO mostra co-participação nem líquido — quem desconta é
+o contracheque. Ver o comentário na montagem da tabela de benefícios.
 
 Uma folha A4, branded, texto sempre dentro das caixas.
 """
@@ -206,8 +209,6 @@ def montar_recibo_vt_vr_pdf(
     vt_dia = float(holerite.get("vt_dia") or 10.0)
     dias_vr = int(holerite.get("dias_vr") or 0)
     dias_vt = int(holerite.get("dias_vt") or 0)
-    co_vr = float(holerite.get("desconto_vr") or 0)
-    co_vt = float(holerite.get("desconto_vt") or 0)
     vr_conc = float(holerite.get("vr_concedido") or (vr_dia * dias_vr))
     # VT concedido: override manual (param) tem prioridade; senão o valor calculado pela escala
     if vt_concedido is None:
@@ -236,14 +237,23 @@ def montar_recibo_vt_vr_pdf(
     if holerite.get("vt_pago") is not None:
         vt_concedido = float(holerite["vt_pago"])
         dias_vt = _qtd_exata(vt_concedido, vt_dia, dias_vt)
-    vr_liq = vr_conc - co_vr
     tem_vt = bool(vt_concedido)
-    vt_liq = (vt_concedido - co_vt) if tem_vt else None
 
     def _c(txt, right=False, bold=False):
         return _cell(txt, st, right=right, bold=bold)
 
     # 09/09/2026: o recibo REAL usa os códigos da folha (218 VT, 219 VR) e separa valor unitário × quantidade.
+    #
+    # 28/09/2026 (Pyetra, DP) — SAÍRAM as colunas «Co-part.» e «Líquido» e o rodapé laranja
+    # «Total líquido recebido em benefícios». POR QUÊ: a co-participação já é descontada no
+    # CONTRACHEQUE. Mostrando-a também aqui, quem confere lê a mesma dedução duas vezes e
+    # conclui que descontaram em dobro. No recibo do modelo medido em 28/09 eram R$ 16,70 (VR)
+    # + R$ 66,80 (VT) = R$ 83,50 aparecendo nos dois documentos, e o rodapé fechava R$ 660,50
+    # em vez dos R$ 744,00 efetivamente CONCEDIDOS — recibo é comprovante do que foi concedido,
+    # não demonstrativo de desconto.
+    #
+    # «Concedido» É o total da linha: medido, 22,00 × 22 = 484,00 — unitário × qtd. Não existe
+    # sexta coluna «Total»: seria a mesma coluna com outro nome.
     head = [
         [
             _cell("Cód", st, bold=True, cor=colors.white),
@@ -251,8 +261,6 @@ def montar_recibo_vt_vr_pdf(
             _cell("Valor unit.", st, bold=True, right=True, cor=colors.white),
             _cell("Qtd", st, bold=True, right=True, cor=colors.white),
             _cell("Concedido", st, bold=True, right=True, cor=colors.white),
-            _cell("Co-part.", st, bold=True, right=True, cor=colors.white),
-            _cell("Líquido", st, bold=True, right=True, cor=colors.white),
         ]
     ]
     linhas = [
@@ -261,21 +269,17 @@ def montar_recibo_vt_vr_pdf(
             _c("Vale-Refeição"),
             _c(_brl_num(vr_dia), right=True),
             _c(str(dias_vr) if dias_vr is not None else "—", right=True),
-            _c(_brl_num(vr_conc), right=True),
-            _c(_brl_num(co_vr), right=True),
-            _c(_brl_num(vr_liq), right=True, bold=True),
+            _c(_brl_num(vr_conc), right=True, bold=True),
         ],
         [
             _c("218"),
             _c("Vale-Transporte"),
             _c(_brl_num(vt_dia), right=True),
             _c(str(dias_vt) if (tem_vt and dias_vt is not None) else "—", right=True),
-            _c(_brl_num(vt_concedido) if tem_vt else "—", right=True),
-            _c(_brl_num(co_vt), right=True),
-            _c(_brl_num(vt_liq) if tem_vt else "—", right=True, bold=True),
+            _c(_brl_num(vt_concedido) if tem_vt else "—", right=True, bold=True),
         ],
     ]
-    t_ben = Table(head + linhas, colWidths=[11 * mm, 38 * mm, 22 * mm, 12 * mm, 26 * mm, 24 * mm, 25 * mm])
+    t_ben = Table(head + linhas, colWidths=[13 * mm, 62 * mm, 30 * mm, 18 * mm, 35 * mm])
     t_ben.setStyle(
         TableStyle(
             [
@@ -294,44 +298,10 @@ def montar_recibo_vt_vr_pdf(
     story.append(t_ben)
     story.append(Spacer(1, 3 * mm))
 
-    # ── Total recebido ──
-    total_liq = vr_liq + (vt_liq if tem_vt else 0)
-    tot = Table(
-        [
-            [
-                _cell("Total líquido recebido em benefícios", st, bold=True, cor=colors.white),
-                _cell(B.brl(total_liq) + ("" if tem_vt else "  + VT"), st, right=True, bold=True, cor=colors.white),
-            ]
-        ],
-        colWidths=[128 * mm, 50 * mm],
-    )
-    tot.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), B.LARANJA),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ]
-        )
-    )
-    story.append(tot)
-
-    # citação legal da co-participação (letras menores) — transparência com o funcionário.
-    # PJ não entra: não há desconto em folha nem Lei 7.418/1985 para prestador, e a nota
-    # afirmaria uma coisa que a própria coluna dele mostra como 0,00.
-    if not funcionario.get("e_pj"):
-        story.append(Spacer(1, 1.5 * mm))
-        story.append(
-            Paragraph(
-                '<font size="7" color="#6B7280">A co-participação (coluna "Co-part.") é a parcela do benefício '
-                "legalmente descontada do colaborador, <b>conforme a Lei nº 7.418/1985</b>; o restante do custo é "
-                "assumido pela empresa.</font>",
-                st["small"],
-            )
-        )
+    # 28/09/2026: o rodapé laranja «Total líquido recebido em benefícios» e a nota de rodapé que
+    # explicava a coluna "Co-part." saíram junto com as colunas — sem a coluna, a nota apontava
+    # para nada, e o total líquido (R$ 660,50 no caso medido) é justamente o número que fazia a
+    # dedução do contracheque ser lida uma segunda vez aqui.
 
     if not tem_vt:
         story.append(Spacer(1, 1 * mm))

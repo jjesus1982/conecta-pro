@@ -28,7 +28,7 @@ GENERICOS = {"CONDOMINIO", "RESIDENCIAL", "VILLAGE", "VILLA", "EDIFICIO", "DA", 
 
 def _mapa_funcionarios(db) -> dict:
     """Constrói: emp_id→ged_client_id, nome_norm→emp_id (via escopo-por-nome do Raio-X)."""
-    posts = db.execute(text("SELECT id, name, client_id FROM posts")).mappings().all()
+    posts = db.execute(text("SELECT id, name, client_id, ged_client_id FROM posts")).mappings().all()
     geds = (
         db.execute(
             text(
@@ -43,7 +43,26 @@ def _mapa_funcionarios(db) -> dict:
         .all()
     )
     # post_id → ged_client_id
-    post2ged: dict = {}
+    #
+    # 28/09/2026 — a Pyetra viu kit de condomínio com gente de OUTRO condomínio. Aqui estava a
+    # causa de 1.356 dos 1.541 documentos gravados no cliente errado (890 'dp' + 466 'fiscal',
+    # medido em ged_kit_documents × allocations). Dois defeitos, ambos de OBSERVAÇÃO:
+    #
+    #  1. este mapa NUNCA lia `posts.ged_client_id` — a FK autoritativa, preenchida em 16 dos 17
+    #     postos. Casava condomínio↔posto por SUBSTRING de token (`any(t in pn for t in toks)`).
+    #  2. `post2ged[...] = ...` dentro do laço = último a casar VENCE, sem ninguém notar o empate.
+    #
+    # Medido: os postos 'Portaria Principal - Mirante das Flores' e 'Condomínio Mirante das
+    # Flores' têm ged_client_id = MIRANTE, mas o token 'FLORES' casava TAMBÉM com IDEAL FLORES,
+    # que vinha depois no laço e ganhava. Resultado no banco: MAURICIO, AILTON, EDIWILSON,
+    # ANTONIO CARLOS, TELMA e VANDERLICE (Mirante) indexados no kit do IDEAL FLORES DA CIDADE —
+    # 51 documentos só em 28/09/2026. 9 dos 17 postos tinham mais de um candidato.
+    #
+    # Agora: FK manda; sem FK, o nome só decide quando aponta para UM único ged_client. Empate
+    # não escolhe — fica de fora e cai no contador `sem_cliente`, que já existe (fail-closed:
+    # documento fora do kit é um buraco visível; no kit errado é o cliente lendo a folha do
+    # vizinho).
+    candidatos: dict[str, set[str]] = {}
     for g in geds:
         cond_nome = g["cond_nome"] or g["gnome"]
         toks = [t for t in _norm(cond_nome).split() if len(t) > 3 and t not in GENERICOS]
@@ -55,7 +74,16 @@ def _mapa_funcionarios(db) -> dict:
                 or (alias and alias.upper() in pn)
                 or any(t in pn for t in toks)
             ):
-                post2ged[str(p["id"])] = str(g["gid"])
+                candidatos.setdefault(str(p["id"]), set()).add(str(g["gid"]))
+    post2ged: dict = {}
+    for p in posts:
+        pid = str(p["id"])
+        if p["ged_client_id"]:
+            post2ged[pid] = str(p["ged_client_id"])
+            continue
+        achados = candidatos.get(pid, set())
+        if len(achados) == 1:
+            post2ged[pid] = next(iter(achados))
     # emp → ged via allocations active
     emp2ged: dict = {}
     nome2emp: dict = {}
@@ -87,12 +115,21 @@ def _mapa_funcionarios(db) -> dict:
 def _ged_por_condominio(texto: str, mapa: dict) -> str | None:
     """Casa um texto (nome de arquivo onvio) ao ged_client pelo nome do condomínio."""
     palavras = set(_norm(texto).split())
-    melhor, mx = None, 0
+    placar: dict[str, int] = {}
     for gid, toks in mapa["ged_tokens"].items():
         inter = len(toks & palavras)
-        if inter > mx:
-            melhor, mx = gid, inter
-    return melhor
+        if inter:
+            placar[gid] = inter
+    if not placar:
+        return None
+    mx = max(placar.values())
+    # 28/09/2026 — EMPATE NÃO ESCOLHE. `if inter > mx` mantinha o PRIMEIRO do dict: um arquivo
+    # onvio com 'FLORES' no nome empata 1×1 entre MIRANTE DAS FLORES e IDEAL FLORES DA CIDADE e
+    # a folha ia para o condomínio que a ordem do dict entregasse. Este ramo gravou 466 dos 1.541
+    # documentos no cliente errado (source_module='fiscal'). Empate agora volta None e o chamador
+    # soma em `sem_cliente` — ninguém recebe a folha do vizinho por causa de ordem de dicionário.
+    vencedores = [g for g, n in placar.items() if n == mx]
+    return vencedores[0] if len(vencedores) == 1 else None
 
 
 def _ged_por_nome(nome: str, mapa: dict) -> tuple[str | None, str | None]:

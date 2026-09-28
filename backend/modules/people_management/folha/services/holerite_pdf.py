@@ -105,6 +105,79 @@ def _cbo(cargo: str, funcionario: dict | None = None) -> str:
     return _CBO_POR_CARGO.get(_norm(cargo), "—")
 
 
+# 28/09/2026 (Pyetra): FILIAL não existe em lugar nenhum do banco — nem em `employees`, nem em
+# `empresas`. Não há de onde tirar. A própria Pyetra definiu "Filial (sempre a 1)", então é
+# CONSTANTE POR DECISÃO DELA, não campo em branco por falta de dado. Se um dia houver filial 2,
+# isto vira coluna.
+_FILIAL_PADRAO = "1"
+
+# 28/09/2026 (Pyetra): centro de custo. `employees.centro_custo` existe e está 0/66 preenchido
+# (medido). O modelo dela imprime literalmente "CC: GERAL" para todo mundo — é o default que ela
+# especificou. Valor real do cadastro ganha quando existir.
+_CC_PADRAO = "GERAL"
+
+# Campos de identidade que o PDF mostra e que os callers quase nunca passam. Medido em 28/09/2026:
+# dos 5 callers de montar_holerite_pdf, TODOS montavam `fdad` só com cpf/pis/matricula/admissão —
+# por isso "Departamento" saía "—" no holerite da JAQUELINE mesmo com employees.departamento =
+# 'Serviços Gerais' no banco. Enriquecer aqui (função compartilhada) conserta os 5 de uma vez.
+_CAMPOS_IDENTIDADE = ("codigo", "departamento", "centro_custo", "matricula", "cpf", "pis", "data_admissao")
+
+
+def _enriquece_identidade(funcionario: dict, holerite: dict) -> dict:
+    """Completa `funcionario` com o que estiver faltando, lendo employees pelo employee_id.
+
+    Fail-open: sem employee_id ou sem banco, devolve o dict como veio (campo vira "—", nunca
+    valor chutado).
+    """
+    if all(funcionario.get(k) for k in _CAMPOS_IDENTIDADE):
+        return funcionario
+    eid = funcionario.get("employee_id") or holerite.get("employee_id")
+    if not eid:
+        return funcionario
+    try:
+        from sqlalchemy import text as _t
+
+        from core.database.session import get_sync_db_dependency
+
+        sdb = next(get_sync_db_dependency())
+        try:
+            row = sdb.execute(
+                _t(
+                    "SELECT codigo, departamento, centro_custo, matricula, cpf, pis, data_admissao "
+                    "FROM employees WHERE CAST(id AS TEXT) = :e"
+                ),
+                {"e": str(eid)},
+            ).first()
+        finally:
+            sdb.close()
+        if row:
+            for k, v in zip(_CAMPOS_IDENTIDADE, row, strict=False):
+                if not funcionario.get(k) and v:
+                    funcionario[k] = v
+    except Exception:  # noqa: BLE001 — identidade é enfeite do papel, nunca derruba o holerite
+        pass
+    return funcionario
+
+
+def _tipo_documento(holerite: dict) -> str:
+    """"Do que se trata" (Pyetra): Contracheque ou Adiantamento.
+
+    Explícito em `holerite["tipo"]` quando quem chamou souber; senão deriva: se TODO provento é
+    adiantamento, o papel é um adiantamento. Hoje a engine desta casa lança o adiantamento como
+    DESCONTO na folha mensal (rubrica 1045) — ou seja, a derivação cai sempre em Contracheque, que
+    é o correto para o que existe.
+    """
+    t = str(holerite.get("tipo") or "").strip().lower()
+    if t.startswith("adiant"):
+        return "Adiantamento"
+    if t:
+        return t.capitalize()
+    prov = holerite.get("proventos") or []
+    if prov and all("ADIANT" in _norm(p.get("descricao", "")) for p in prov):
+        return "Adiantamento"
+    return "Contracheque"
+
+
 def _cell(txt, st, *, bold=False, right=False, cor=None, size=8.5):
     base = st.get("cell")
     ps = ParagraphStyle(
@@ -166,7 +239,8 @@ def _titulo(txt, st, icone="user"):
 
 def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signatarios: list | None = None) -> bytes:
     """Gera o PDF completo do holerite (uma folha A4) a partir do dict de calcular_folha_colaborador."""
-    funcionario = funcionario or {}
+    funcionario = _enriquece_identidade(dict(funcionario or {}), holerite)
+    tipo_doc = _tipo_documento(holerite)
     _mes = int(holerite.get("mes") or 0)
     _ano = int(holerite.get("ano") or 0)
     _competencia = f"{_ano:04d}-{_mes:02d}" if _mes and _ano else None
@@ -221,6 +295,22 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
             _cell(funcionario.get("departamento") or "—", st),
             _cell("Posto", st, bold=True),
             _cell(funcionario.get("posto", "—"), st),
+        ],
+        # 28/09/2026 (Pyetra): quatro campos que o contracheque dela (Domínio/Portte) traz e o
+        # nosso não trazia — Código do funcionário, CC, Filial e "do que se trata". Sem eles o DP
+        # não casa nosso papel com a folha oficial. Código ≠ Matrícula: no cadastro desta casa
+        # são colunas diferentes (employees.codigo '000181' × employees.matricula '168').
+        [
+            _cell("Código", st, bold=True),
+            _cell(funcionario.get("codigo") or "—", st),
+            _cell("CC", st, bold=True),
+            _cell(funcionario.get("centro_custo") or _CC_PADRAO, st),
+        ],
+        [
+            _cell("Filial", st, bold=True),
+            _cell(_FILIAL_PADRAO, st),
+            _cell("Documento", st, bold=True),
+            _cell(tipo_doc, st),
         ],
     ]
     t_id = Table(ident, colWidths=[30 * mm, W / 2 - 30 * mm, 28 * mm, W / 2 - 28 * mm])
@@ -425,7 +515,9 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
     )  # 09/09: holerite carimba as assinaturas coletadas
     doc.build(
         story,
-        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="HOLERITE", empresa=empresa_doc),
-        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="HOLERITE", empresa=empresa_doc),
+        # 28/09/2026 (Pyetra): o título era a constante "HOLERITE" — o papel nunca dizia se era
+        # contracheque ou adiantamento. Agora sai o tipo real do documento.
+        onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo=tipo_doc.upper(), empresa=empresa_doc),
+        onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo=tipo_doc.upper(), empresa=empresa_doc),
     )
     return buf.getvalue()

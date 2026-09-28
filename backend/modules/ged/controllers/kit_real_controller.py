@@ -36,8 +36,8 @@ def _brand_build(doc, story, titulo: str | None = None):
     )
 
 
-async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[dict]:
-    """Funcionarios alocados no cliente, via posts+allocations.
+async def _get_employees_for_client(db: AsyncSession, client_id: str, comp: date | None = None) -> list[dict]:
+    """Funcionarios alocados no cliente NA COMPETÊNCIA, via posts+allocations.
 
     🔴 `client_id` aqui chega de `ged_document_kits.client_id`, que aponta para
     `ged_clients`. `posts.client_id` aponta para `clients`. São DUAS tabelas sem FK entre
@@ -48,6 +48,17 @@ async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[di
 
     Terceira ocorrência desta família neste arquivo. O `:cid` agora serve para os dois
     tipos de id: casa direto em `clients` OU pela ponte CNPJ/nome a partir de `ged_clients`.
+
+    🔴 28/09/2026 — `comp`. Mesma família de novo, agora no TEMPO. O filtro era
+    `a.status = 'active'`: o estado de HOJE da alocação decidindo quem entra num kit de um mês
+    PASSADO. Medido em 28/09 no gêmeo desta query (KitBuilderService.get_employees_for_client)
+    chamando 03, 08 e 09/2026: DEVOLVEU A MESMA LISTA NAS TRÊS. No Mirante de 03/2026 entrava
+    FRANCE CHARLES ALMEIDA DE SALES, cuja alocação no Mirante começa em 25/09/2026.
+    É a causa do relato da Pyetra ("Salvei o Kit do Mirante e veio informações do kit do Fiori"):
+    quem troca de condomínio arrasta os documentos dos meses anteriores para o condomínio NOVO —
+    CINTIA BEZERRA OLIVEIRA e EIDY CULIER DE CASTRO (Fiori desde 01/03) estão com 5 documentos
+    cada nos kits do MIRANTE de 03 a 06/2026.
+    Agora vale a JANELA da alocação sobre a competência. Sem `comp` o critério antigo segue.
     """
     rows = (
         (
@@ -56,7 +67,11 @@ async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[di
                     "SELECT DISTINCT e.id, e.nome, e.cpf, e.cargo, e.salario_base, "
                     "e.data_admissao, e.matricula "
                     "FROM employees e "
-                    "JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' "
+                    "JOIN allocations a ON a.employee_id = e.id AND ("
+                    "  (CAST(:comp AS date) IS NULL AND a.status = 'active') "
+                    "  OR (CAST(:comp AS date) IS NOT NULL "
+                    "      AND a.start_date < (CAST(:comp AS date) + INTERVAL '1 month') "
+                    "      AND (a.end_date IS NULL OR a.end_date >= CAST(:comp AS date)))) "
                     "JOIN posts p ON a.post_id = p.id "
                     "JOIN clients c ON c.id = p.client_id "
                     "WHERE e.is_active = true AND ("
@@ -67,7 +82,7 @@ async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[di
                     "      OR upper(btrim(g.name)) = upper(btrim(c.name)))))"
                     "ORDER BY e.nome"
                 ),
-                {"cid": client_id},
+                {"cid": client_id, "comp": comp},
             )
         )
         .mappings()
@@ -111,7 +126,7 @@ async def _gerar_kit_real(db: AsyncSession, kit_id: str) -> dict:
     )
     cliente_nome = gc["name"] if gc else "Cliente"
 
-    employees = await _get_employees_for_client(db, client_id)
+    employees = await _get_employees_for_client(db, client_id, comp)
     if not employees:
         return {"kit_id": kit_id, "cliente": cliente_nome, "gerados": 0, "motivo": "Sem funcionarios alocados"}
 
@@ -643,7 +658,7 @@ async def _add_comprovante_vt(db: AsyncSession, kit_id: str, client_id: str, com
     if exists:
         return 0
 
-    employees = await _get_employees_for_client(db, client_id)
+    employees = await _get_employees_for_client(db, client_id, comp)
     if not employees:
         return 0
 
