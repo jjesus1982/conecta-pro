@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import calendar
 import json
-from datetime import date, datetime, time
+import logging
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -52,6 +53,7 @@ _DDL = [
 SQL_PLANOS_VIGENTES = """
 SELECT id::text, frequencia, dias_semana, vigencia_inicio, vigencia_fim
 FROM op_supervisao_planos WHERE ativo AND vigencia_inicio <= :d AND (vigencia_fim IS NULL OR vigencia_fim >= :d)
+  AND (CAST(:pl AS uuid) IS NULL OR id = CAST(:pl AS uuid))  -- CAST no 1º uso: asyncpg não infere tipo de `$n IS NULL`
 """
 
 
@@ -67,6 +69,24 @@ def agora_manaus() -> datetime:
 
 def hoje_manaus() -> date:
     return agora_manaus().date()
+
+
+def horizonte(dia: date | None = None) -> date:
+    """Último dia do mês SEGUINTE.
+
+    Por que existe: `gerar_ocorrencias` só sabia fazer UM dia, e todo mundo em produção chamava
+    com «hoje» (beat 00:30, a tela ao abrir, `criar_plano`). Resultado: o denominador do mapa era
+    sempre ≈ os dias já vividos, então a % de realizado dava ~100% e a pergunta que justificou a
+    frente — «3 visitas no mês são 3 de 3 ou 3 de 20?» — continuava sem resposta. Medido em
+    28/09/2026: plano semanal seg/qua vigente 01→30/09 (9 dias devidos) aparecia como
+    «Planejadas: 1». O único lugar que gerava mais de um dia era o oráculo, que trazia o laço
+    consigo.
+    Do futuro, nunca do passado: gerar dia anterior ao de hoje marcaria `nao_realizada` uma visita
+    que pode ter acontecido sem ocorrência para fechar — inventaria a falta.
+    """
+    d = dia or hoje_manaus()
+    y, m = d.year + (d.month == 12), d.month % 12 + 1
+    return date(y, m, calendar.monthrange(y, m)[1])
 
 
 async def _ensure(db) -> None:
@@ -94,23 +114,39 @@ def deve_ocorrer(frequencia: str, dias_semana, vigencia_inicio: date, dia: date)
     return False
 
 
-async def gerar_ocorrencias(db, dia: date | None = None) -> dict:
-    """Idempotente: cria a ocorrência de cada plano devido em `dia` (ON CONFLICT DO NOTHING) e
-    fecha o status do passado: dia < hoje sem realização → nao_realizada; hoje depois de hora_fim → atrasada."""
+async def gerar_ocorrencias(
+    db, dia: date | None = None, *, ate: date | None = None, plano_id: str | None = None
+) -> dict:
+    """Idempotente: cria a ocorrência de cada plano devido em cada dia de `dia`…`ate` (ON CONFLICT
+    DO NOTHING) e fecha o status do passado: dia < hoje sem realização → nao_realizada; hoje depois
+    de hora_fim → atrasada.
+
+    `ate` (default = `dia`, um dia só) é o que dá denominador ao mapa: quem chama com
+    `ate=horizonte()` pré-cria os dias devidos até o fim do mês seguinte, e só então «3 de 20» é
+    dizível. `plano_id` restringe ao plano novo (criar/reativar não precisa varrer a casa)."""
     await _ensure(db)
     dia = dia or hoje_manaus()
-    planos = (await db.execute(text(SQL_PLANOS_VIGENTES), {"d": dia})).fetchall()
-    devidos = [p[0] for p in planos if deve_ocorrer(p[1], p[2], p[3], dia)]
+    # ponytail: teto de 400 dias no laço; se um dia precisar de horizonte maior, vira INSERT…SELECT
+    # sobre generate_series em vez de laço em Python.
+    ate = min(ate or dia, dia + timedelta(days=400))
     criadas = 0
-    for pid in devidos:
-        r = await db.execute(
-            text(
-                "INSERT INTO op_supervisao_ocorrencias (plano_id, data) VALUES (CAST(:p AS uuid), :d) "
-                "ON CONFLICT (plano_id, data) DO NOTHING RETURNING id"
-            ),
-            {"p": pid, "d": dia},
-        )
-        criadas += 1 if r.fetchone() else 0
+    devidos: list[str] = []
+    d = dia
+    while d <= ate:
+        planos = (await db.execute(text(SQL_PLANOS_VIGENTES), {"d": d, "pl": plano_id})).fetchall()
+        for p in planos:
+            if not deve_ocorrer(p[1], p[2], p[3], d):
+                continue
+            devidos.append(p[0])
+            r = await db.execute(
+                text(
+                    "INSERT INTO op_supervisao_ocorrencias (plano_id, data) VALUES (CAST(:p AS uuid), :d) "
+                    "ON CONFLICT (plano_id, data) DO NOTHING RETURNING id"
+                ),
+                {"p": p[0], "d": d},
+            )
+            criadas += 1 if r.fetchone() else 0
+        d += timedelta(days=1)
     agora = agora_manaus()
     await db.execute(
         text(
@@ -126,7 +162,7 @@ async def gerar_ocorrencias(db, dia: date | None = None) -> dict:
         {"h": agora.date(), "t": agora.time().replace(microsecond=0)},
     )
     await db.commit()
-    return {"dia": dia.isoformat(), "devidas": len(devidos), "criadas": criadas}
+    return {"dia": dia.isoformat(), "ate": ate.isoformat(), "devidas": len(devidos), "criadas": criadas}
 
 
 async def marcar_realizada(
@@ -241,7 +277,14 @@ async def criar_plano(
         )
     ).scalar()
     await db.commit()
-    await gerar_ocorrencias(db)  # o plano novo já aparece em "hoje"
+    # o plano novo já aparece em "hoje" E com o resto do mês como "a vencer" (denominador do mapa).
+    # O plano JÁ está commitado: se a geração falhar, 500 aqui faria o usuário achar que não salvou e
+    # criar o plano de novo. O beat das 00:30 repõe as ocorrências; o plano é o que importa.
+    try:
+        await gerar_ocorrencias(db, ate=horizonte(), plano_id=pid)
+    except Exception as exc:  # noqa: BLE001 — visível no log, nunca calado
+        await db.rollback()
+        logging.getLogger(__name__).error("supervisão planejada: gerar após criar_plano %s falhou: %s", pid, exc)
     return {"id": pid, "vigencia_inicio": ini.isoformat()}
 
 
@@ -263,4 +306,6 @@ async def ativar_plano(db, *, plano_id: str, ativo: bool) -> dict:
             {"i": plano_id, "h": hoje_manaus()},
         )
     await db.commit()
+    if ativo:  # reativar tem de repor as planejadas que a desativação apagou
+        await gerar_ocorrencias(db, ate=horizonte(), plano_id=plano_id)
     return {"id": plano_id, "ativo": ativo}

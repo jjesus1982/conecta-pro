@@ -82,8 +82,9 @@ def _acao_encerrar(r, hoje: str) -> dict:
         "btnStyle": "danger",
         "okMsg": "Alocação encerrada. Recarregue a tela.",
         "fields": [
-            {"key": "data_fim", "label": "Último dia na vaga", "type": "date", "value": hoje},
-            {"key": "motivo", "label": "Motivo", "type": "select", "options": _motivo_opts()},
+            {"key": "data_fim", "label": "Último dia na vaga*", "type": "date", "value": hoje},
+            # `ms.remover` recusa motivo vazio (400) — mesmo defeito do form `movimentacao-nova`
+            {"key": "motivo", "label": "Motivo*", "type": "select", "options": _motivo_opts()},
             {"key": "observacao", "label": "Observação", "type": "text"},
         ],
     }
@@ -257,8 +258,13 @@ async def telas(db, out: dict) -> None:
                 "value": hoje_s,
             },
             {
+                # 28/09/2026: sem o `*` a tela dizia que era opcional e o validador exigia
+                # («Colaborador, condomínio e função são obrigatórios») — 400 em 100% do caminho
+                # feliz, e por isso `op_movimentacao_pedidos` e toda escrita do app em
+                # `employee_alocacoes` ficaram em ZERO. Para `tipo=remover` o endpoint ignora
+                # estes dois (a tela própria é `movimentacao-encerrar`).
                 "key": "condominio_id",
-                "label": "Condomínio (destino)",
+                "label": "Condomínio (destino)* — ao alocar",
                 "type": "select",
                 "options": _opts(conds, lambda r: r[1]),
             },
@@ -270,7 +276,7 @@ async def telas(db, out: dict) -> None:
             },
             {
                 "key": "funcao",
-                "label": "Função",
+                "label": "Função* — ao alocar",
                 "type": "select",
                 "options": [{"value": "", "label": "— função —"}] + [{"value": f, "label": f} for f in funcoes],
             },
@@ -289,12 +295,19 @@ async def telas(db, out: dict) -> None:
                 "options": [{"value": k, "label": v} for k, v in ms.SOLICITANTES.items() if k != "sistema"],
             },
             {"key": "solicitante_nome", "label": "Nome de quem pediu", "type": "text", "ph": "síndico, supervisor…"},
-            {  # dgx u1 — dois passos: quem não é DP sempre pede; DP/admin decide
+            {
+                # dgx u1 — dois passos. 28/09/2026: o default era "" ("Automático"), e
+                # «automático» se decidia por `e_dp` = tem `module:dp`. Medido: dos 78 usuários
+                # ativos, TODOS os que alcançam o módulo Operacional têm `module:dp` — inclusive
+                # o Orlailson (gerente_operacional), que é justamente quem PEDE. Resultado: o
+                # default nunca caía no ramo `pedir()`, alocava direto, e o pedido pendente (a
+                # coisa que faz a escala acompanhar a realidade) nunca nascia. O padrão agora é
+                # PEDIR; alocar sem passar por ninguém é a exceção declarada, e só do DP.
                 "key": "pedir_aprovacao",
                 "label": "Pedir aprovação do DP?",
                 "type": "select",
+                "value": "sim",
                 "options": [
-                    {"value": "", "label": "Automático (sim, exceto DP/admin)"},
                     {"value": "sim", "label": "Sim — fica pendente até o DP aprovar"},
                     {"value": "nao", "label": "Não — alocar agora (só DP/admin)"},
                 ],

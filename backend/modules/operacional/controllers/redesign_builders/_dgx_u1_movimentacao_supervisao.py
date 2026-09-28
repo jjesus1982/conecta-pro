@@ -51,9 +51,17 @@ WHERE e.status IN ('ativo','pj_ativo') AND (
   OR e.id IN (SELECT employee_id FROM users WHERE is_active AND role IN ('admin','gerente_operacional') AND employee_id IS NOT NULL))
 ORDER BY e.nome
 """
+# ⚠️ 28/09/2026 — era `JOIN condominios` (INNER) e sumia com 6 dos 15 postos ATIVOS: os 5 do
+# Conecta Village e o Conecta Base, cujo cliente não tem linha em `condominios`. Eram exatamente
+# os postos da própria casa — o Orlailson não conseguia criar plano de supervisão para eles e a
+# tela não dizia por quê (o select simplesmente não os oferecia). LEFT JOIN com o nome do cliente
+# como rótulo de fallback: 9 → 15 opções. As demais consultas desta tela já usavam LEFT JOIN por
+# `pl.posto_id`, então o plano criado aqui aparece na listagem e no mapa sem mais nenhuma mudança.
 SQL_POSTOS = (
-    "SELECT p.id::text, c.nome, p.name FROM posts p JOIN condominios c ON c.client_id = p.client_id "
-    "WHERE p.is_active ORDER BY c.nome, p.name"
+    "SELECT p.id::text, coalesce(c.nome, cl.name, '(sem condomínio)'), p.name FROM posts p "
+    "LEFT JOIN clients cl ON cl.id = p.client_id "
+    "LEFT JOIN condominios c ON c.client_id = p.client_id "
+    "WHERE p.is_active ORDER BY 2, 3"
 )
 SQL_CONDS = "SELECT id::text, nome FROM condominios WHERE ativo ORDER BY nome"
 SQL_MODELOS = (
@@ -150,7 +158,8 @@ def _acoes_pedido(pid: str, quem: str, para: str) -> list[dict]:
             "submitLabel": "Recusar",
             "btnStyle": "danger",
             "okMsg": "Pedido recusado. Nada mudou na alocação.",
-            "fields": [{"key": "motivo", "label": "Por quê?", "type": "text"}],
+            # `ms.recusar` exige 3+ caracteres (400) — o `*` diz isso antes do envio
+            "fields": [{"key": "motivo", "label": "Por quê?*", "type": "text"}],
         },
     ]
 

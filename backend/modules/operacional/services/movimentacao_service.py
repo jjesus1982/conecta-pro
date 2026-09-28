@@ -270,7 +270,7 @@ async def remover(
 # ───────────────────────── dois passos (dgx u1) ─────────────────────────
 _CAMPOS_PEDIDO = (
     "employee_id::text, condominio_id::text, posto_id::text, funcao, data_inicio, motivo, coberto_employee_id::text, "
-    "solicitado_por, solicitante_nome, observacao, status"
+    "solicitado_por, solicitante_nome, observacao, status, pedido_por::text"
 )
 
 
@@ -351,6 +351,14 @@ async def aprovar(db, *, pedido_id: str, user_id: str | None) -> dict:
     Se `alocar` recusar, o pedido fica pendente — nada muda."""
     await _ensure(db)
     r = await _pedido_pendente(db, pedido_id)
+    # Quem aprova não pode ser quem pede (28/09/2026). O gate de papel (`_require_dp` = tem
+    # `module:dp`) não é parede aqui: o Orlailson tem `module:dp` e é o solicitante natural, então
+    # sozinho ele pediria e aprovaria o próprio pedido. Vai no SERVIÇO, não no endpoint, porque é
+    # por aqui que todo chamador passa. `pedido_por` nulo = pedido do sistema, sem dono a comparar.
+    if user_id and r[11] and str(user_id) == str(r[11]):
+        raise MovimentacaoErro(
+            403, "Quem pediu a movimentação não pode aprovar o próprio pedido — outra pessoa do DP decide."
+        )
     res = await alocar(  # commita
         db,
         employee_id=r[0],

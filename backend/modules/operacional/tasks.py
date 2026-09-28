@@ -1203,17 +1203,20 @@ def triagem_ponto_hermes(self, data: str | None = None):
 
 @app.task(name="operacional.supervisao_planejada_gerar", bind=True, max_retries=2, default_retry_delay=300)
 def supervisao_planejada_gerar(self, dia: str | None = None):
-    """Gera as ocorrências do dia dos planos de supervisão (DGX U1, 24/09/2026) e fecha o status
-    do passado. Idempotente (ON CONFLICT DO NOTHING) — rodar duas vezes não duplica; sem o beat
-    o mapa só preenchia quando alguém abria a tela."""
+    """Gera as ocorrências dos planos de supervisão (DGX U1, 24/09/2026) de hoje até o fim do mês
+    seguinte, e fecha o status do passado. Idempotente (ON CONFLICT DO NOTHING) — rodar duas vezes
+    não duplica; sem o beat o mapa só preenchia quando alguém abria a tela. O `ate=horizonte()` é o
+    que dá denominador ao mapa: antes dele só o dia corrente era gerado, e «realizado × planejado»
+    comparava o realizado contra ele mesmo (28/09/2026: 9 dias devidos em setembro viravam 1)."""
     from datetime import date as _date  # noqa: PLC0415
 
     from core.database import async_session_factory  # noqa: PLC0415
-    from modules.operacional.services.supervisao_planejada import gerar_ocorrencias  # noqa: PLC0415
+    from modules.operacional.services.supervisao_planejada import gerar_ocorrencias, horizonte  # noqa: PLC0415
 
     async def _run() -> dict:
         async with async_session_factory() as db:
-            r = await gerar_ocorrencias(db, _date.fromisoformat(dia) if dia else None)
+            d0 = _date.fromisoformat(dia) if dia else None
+            r = await gerar_ocorrencias(db, d0, ate=horizonte(d0))
             await db.commit()
             return r
 

@@ -40,6 +40,7 @@ from datetime import timedelta
 
 FIX = "FIXTURE DGX U1"
 SQL_USER = "SELECT id::text FROM users WHERE email = 'jjesus@conectamais.pro'"
+SQL_APROVADOR = "SELECT id::text FROM users WHERE email = 'pjesus@conectamais.pro'"  # quem aprova ≠ quem pede
 SQL_CANDIDATO = """
 SELECT e.id::text FROM employees e
 WHERE e.status = 'ativo' AND coalesce(e.is_homologacao, false) = false
@@ -111,12 +112,16 @@ async def main() -> int:
         await sp._ensure(db)
         await limpar(db)
         user = (await db.execute(text(SQL_USER))).scalar()
+        # 28/09/2026: a fixture pedia e aprovava com o MESMO usuário — e `aprovar` passou a recusar
+        # isso (403, «quem pediu não aprova o próprio pedido»). Quem decide tem de ser outra pessoa
+        # do DP, que é justamente o que a regra afirma; a fixture só estava espelhando o furo antigo.
+        aprovador = (await db.execute(text(SQL_APROVADOR))).scalar()
         emp = (await db.execute(text(SQL_CANDIDATO))).scalar()
         conds = (await db.execute(text(SQL_CONDS))).fetchall()
         postos = [r[0] for r in (await db.execute(text(SQL_POSTOS))).fetchall()]
         hoje = ms.hoje_manaus()
-        if not (user and emp and len(conds) == 2 and len(postos) == 2):
-            ok(False, "fixture impossível: falta usuário, colaborador livre, 2 condomínios ou 2 postos")
+        if not (user and aprovador and emp and len(conds) == 2 and len(postos) == 2):
+            ok(False, "fixture impossível: falta usuário, aprovador, colaborador livre, 2 condomínios ou 2 postos")
             print(f"TOTAL falhas U1 movimentação/supervisão: {len(falhas)}")
             return 1
         try:
@@ -165,7 +170,7 @@ async def main() -> int:
                 f"(b) recusar: pedido={st[0]}, alocações={len(rows)}, anterior ativa={rows[0][1]}",
             )
             try:
-                await ms.aprovar(db, pedido_id=ped["id"], user_id=user)
+                await ms.aprovar(db, pedido_id=ped["id"], user_id=aprovador)
                 ok(False, "(b) aprovar pedido recusado foi ACEITO")
             except ms.MovimentacaoErro as exc:
                 ok(exc.status == 409, f"(b) aprovar pedido recusado recusado com {exc.status}: {exc}")
@@ -187,7 +192,7 @@ async def main() -> int:
                 db, employee_id=emp, client_id=conds[1][1], motivo=FIX + " síndico pediu", user_id=user
             )
             try:
-                await ms.aprovar(db, pedido_id=ped2["id"], user_id=user)
+                await ms.aprovar(db, pedido_id=ped2["id"], user_id=aprovador)
                 ok(False, "(c) aprovar com restrição viva foi ACEITO")
             except ms.MovimentacaoErro as exc:
                 ok(exc.status == 422, f"(c) aprovar com restrição recusado com {exc.status}: {str(exc)[:90]}")
@@ -199,7 +204,7 @@ async def main() -> int:
                 f"(c) depois da recusa por restrição: pedido={st[0]}, alocações={len(rows)}, anterior ativa={rows[0][1]}",
             )
             await rc.encerrar(db, restricao_id=restr["id"], motivo="fim da fixture", user_id=user)
-            apr = await ms.aprovar(db, pedido_id=ped2["id"], user_id=user)
+            apr = await ms.aprovar(db, pedido_id=ped2["id"], user_id=aprovador)
             rows = (await db.execute(text(SQL_FIX_ALOC), {"f": FIX + "%"})).fetchall()
             por_id = {r[0]: r for r in rows}
             ant, nova = por_id.get(base["id"]), por_id.get(apr["id"])
@@ -209,8 +214,9 @@ async def main() -> int:
                 f"(c) anterior encerrada em D−1: ativo={ant and ant[1]} data_fim={ant and ant[2]} (esperado {hoje - timedelta(days=1)})",
             )
             ok(
-                nova is not None and nova[1] is True and nova[3] == user and nova[4] == base["id"],
-                f"(c) nova ativa, aprovado_por = aprovador, origem = anterior: {nova and (nova[1], nova[3] == user, nova[4] == base['id'])}",
+                nova is not None and nova[1] is True and nova[3] == aprovador and nova[4] == base["id"],
+                f"(c) nova ativa, aprovado_por = aprovador (não quem pediu), origem = anterior: "
+                f"{nova and (nova[1], nova[3] == aprovador, nova[4] == base['id'])}",
             )
             ok(st[0] == "aprovada" and st[1] == apr["id"], f"(c) pedido aprovada com alocacao_id = nova: {st}")
 

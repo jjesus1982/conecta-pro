@@ -12,6 +12,8 @@ Prefixo `_` = o discovery pula; `departamento_pessoal.py` pluga `router` e `tela
 
 from __future__ import annotations
 
+from calendar import monthrange
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -46,6 +48,14 @@ _OPS = [
 
 def _dt(d) -> str:
     return d.strftime("%d/%m/%Y") if d else "—"
+
+
+def _mes_anterior() -> tuple[str, str]:
+    """(primeiro, último) dia do último mês INTEIRO, em ISO — default da janela de apuração.
+    Calculado a cada montagem da tela (o processo vive semanas; constante de import viraria mentira)."""
+    hoje = date.today()
+    y, m = (hoje.year, hoje.month - 1) if hoje.month > 1 else (hoje.year - 1, 12)
+    return date(y, m, 1).isoformat(), date(y, m, monthrange(y, m)[1]).isoformat()
 
 
 def _n(v):
@@ -222,6 +232,7 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: C901
             )
         ).fetchall()
     ]
+    _ma = _mes_anterior()
     mine["beneficio-entrega-nova"] = {
         "title": "Nova entrega de benefício",
         "type": "form",
@@ -271,8 +282,24 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: C901
                     {"value": "apontamento", "label": "Pelo apontamento (ponto)"},
                 ],
             },
-            {"key": "apuracao_inicio", "label": "Apuração — início", "type": "date", "span": "span 1"},
-            {"key": "apuracao_fim", "label": "Apuração — fim", "type": "date", "span": "span 1"},
+            # O modo default é «apontamento», e ele EXIGE janela: mandar estes dois vazios era 422 em
+            # 100% do caminho feliz (28/09/2026, `beneficio_entregas` com 0 linhas). Nascem no ÚLTIMO
+            # MÊS FECHADO — a mesma janela que o motor da frente 03 usa como "mês anterior" — e o DP
+            # troca se a janela da operadora for outra (16→15, por exemplo).
+            {
+                "key": "apuracao_inicio",
+                "label": "Apuração — início* (se por apontamento)",
+                "type": "date",
+                "span": "span 1",
+                "value": _ma[0],
+            },
+            {
+                "key": "apuracao_fim",
+                "label": "Apuração — fim* (se por apontamento)",
+                "type": "date",
+                "span": "span 1",
+                "value": _ma[1],
+            },
             {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2"},
         ],
     }

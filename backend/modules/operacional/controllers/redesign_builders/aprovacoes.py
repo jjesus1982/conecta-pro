@@ -7,7 +7,8 @@ dinheiro/eSocial intocada). RBAC: só quem tem role ∈ roles_aprovador do rascu
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select, text
@@ -51,6 +52,9 @@ _AREA_DRAFT = {
     # ⚠️ Comerciais — sem estas linhas o default "DP" rotulava "Atualizar Contrato" e
     # "Criar Cliente" como Departamento Pessoal na tela. Medido olhando a Central no
     # navegador em 25/08/2026: TODAS as 7 ações novas apareciam como DP.
+    # ⚠️ 28/09/2026 — sem esta linha a cobertura de posto aparecia com Área "—" na mesa do
+    # Orlailson, que é quem decide. Etiqueta ausente na coluna pela qual ele filtra.
+    "cobertura_posto": "Operacional", "correcao_supervisor": "Operacional",
     "atualizar_cliente": "CRM", "criar_cliente": "CRM",
     "atualizar_proposta": "CRM", "atualizar_contrato": "CRM",
     "reativar_lead": "CRM", "marcar_deal_perdido": "CRM",
@@ -70,11 +74,63 @@ _AREA_DRAFT = {
 _AREA_PADRAO = "—"
 
 
+_TZ_MANAUS = ZoneInfo("America/Manaus")
+
+#: Tipos cujo executor aceita SÓ o turno de hoje ou de ontem — `registrar_falta` responde 422
+#: fora disso (falta_substituto_controller.py:190). Regra certa: é operação do dia, não correção
+#: de histórico.
+#:
+#: 🔴 28/09/2026 — MAS O RASCUNHO NÃO EXPIRAVA JUNTO. `substitutions` tinha ZERO linhas desde que
+#: nasceu, e a causa não era código faltando: os 2 `cobertura_posto` da casa estavam vivos, com
+#: sino entregue e NÃO LIDO aos 3 aprovadores reais desde o dia anterior — no ÚLTIMO dia em que
+#: ainda podiam ser aprovados. Provado por comportamento: aprovar um turno de 6 dias atrás pela
+#: rota devolve 500 e o rascunho morre em `falha`. O botão existia; o prazo é que era invisível.
+#:
+#: Então a tela passa a dizer o prazo em voz alta, e o vencido deixa de oferecer "Aprovar" —
+#: oferecer um botão que vai falhar é a mesma família do sucesso vazio, só ao contrário.
+_JANELA_HOJE_OU_ONTEM = {"cobertura_posto"}
+
+
+def _prazo(tipo: str, payload) -> tuple[str, str] | None:
+    """('vencido'|'hoje', aviso) do rascunho com pavio; None quando o tipo não tem prazo.
+
+    ⚠️ Campo ausente ou ilegível devolve None — falha FECHADO para o lado de não esconder o
+    botão. Adivinhar "vencido" a partir de payload torto apagaria uma decisão que ainda cabe.
+    """
+    if tipo not in _JANELA_HOJE_OU_ONTEM or not isinstance(payload, dict):
+        return None
+    try:
+        dia = date.fromisoformat(str(payload.get("dia") or "")[:10])
+    except ValueError:
+        return None
+    hoje = datetime.now(_TZ_MANAUS).date()
+    if dia < hoje - timedelta(days=1):
+        return ("vencido", f"turno de {dia:%d/%m} saiu da janela de hoje/ontem — a falta já não "
+                           f"pode ser registrada contra ele. Arquive e registre pelo quadro.")
+    if dia < hoje:
+        return ("hoje", "⏳ DECIDA HOJE — amanhã este turno sai da janela e aprovar vai falhar")
+    return None
+
+
 def _subtitulo(rows) -> str:
-    """Quantos esperam decisão e quantos FALHARAM — dois números, nunca um só."""
+    """Quantos esperam decisão, quantos VENCEM HOJE e quantos FALHARAM — nunca um número só.
+
+    ⭐ 28/09/2026 — o prazo entrou no subtítulo porque é a primeira linha que a pessoa lê, e
+    porque o sino não dá conta: o Orlailson tem **1834 notificações não lidas**, das quais
+    **3187 da casa** (todos os usuários) têm o título genérico "⚠ Cobertura de posto" vindo do
+    vigia de atraso (`notification_triggers.py:192`). Os dois rascunhos que ele PODE decidir
+    chegaram no mesmo canal, com o mesmo vocabulário, e afundaram. Entregue ≠ visto.
+    """
     falhou = sum(1 for r in rows if (r[9] if len(r) > 9 else "rascunho") == "falha")
+    prazos = [_prazo(r[1], r[8] if len(r) > 8 else None) for r in rows]
+    hoje = sum(1 for p in prazos if p and p[0] == "hoje")
+    vencido = sum(1 for p in prazos if p and p[0] == "vencido")
     espera = len(rows) - falhou
     txt = f"{espera} rascunho(s) do agente aguardando sua aprovação"
+    if hoje:
+        txt = f"⏳ {hoje} VENCE(M) HOJE · " + txt
+    if vencido:
+        txt += f" · {vencido} venceu(ram) e só pode(m) ser arquivado(s)"
     if falhou:
         txt += f" · {falhou} FALHOU na execução — veja o motivo na linha"
     return txt
@@ -111,6 +167,23 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         requires_otp = bool(r[5])
         status_draft = r[9] if len(r) > 9 else "rascunho"
         erro = (r[10] if len(r) > 10 else None) or ""
+        pl = r[8] if len(r) > 8 else None
+        prazo = _prazo(r[1], pl)
+        if prazo and prazo[0] == "vencido" and status_draft != "falha":
+            # VENCIDO: mesma forma da linha que falhou — diz o motivo e só oferece arquivar.
+            cells[2] = {"isText": True, "v": f"VENCIDO: {prazo[1][:70]}", "w": 500,
+                        "tc": "#B54708", "ini": ""}
+            cells[3] = {"isBadge": True, "v": "vencido", "color": "#B54708", "bg": "#FFFAEB"}
+            return {"cells": cells, "actions": [{
+                "title": f"Arquivar (vencido): {r[2] or r[1]}",
+                "endpoint": f"/api/v1/redesign/action/rejeitar-rascunho?draft_id={did}",
+                "method": "POST", "btnLabel": "Arquivar", "submitLabel": "Arquivar",
+                "btnStyle": "danger", "okMsg": "Rascunho arquivado.",
+                "fields": [{"key": "motivo", "label": "Observação (opcional)", "type": "text"}],
+            }]}
+        if prazo and prazo[0] == "hoje":
+            cells[2] = {"isText": True, "v": f"{(r[2] or '')[:50]} · {prazo[1]}", "w": 600,
+                        "tc": "#B54708", "ini": ""}
         if status_draft == "falha":
             # FALHOU: mostra o motivo no lugar da descrição e NÃO oferece "Aprovar" — aprovar
             # de novo sem saber o que quebrou repetiria o mesmo erro. Só rejeitar (arquivar).
@@ -147,7 +220,6 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         # aparecendo sozinho; o que muda é o número de cliques, não a granularidade.
         # É isto que torna o resultado PARCIAL representável: 9 executados e 3 em falha, cada
         # um com o seu motivo, em vez de um "criar 12 propostas" que a tela não sabe contar.
-        pl = r[8] if len(r) > 8 else None
         lote = (pl or {}).get("lote_id") if isinstance(pl, dict) else None
         if lote:
             total = (pl or {}).get("lote_total") or "?"
@@ -192,6 +264,7 @@ async def build(db: AsyncSession, current_user=None) -> dict:
     # só para quem pode decidir (module:dp / admin). Erro aqui não derruba a Central.
     try:
         from core.auth.module_scope import user_has_module
+
         from ._dgx_u1_movimentacao_supervisao import linhas_central
 
         if current_user is not None and user_has_module(current_user, "dp"):
@@ -317,7 +390,7 @@ async def aprovar_rascunho(
     if draft.requires_otp:
         draft.status = "aprovado"
         draft.decidido_por = current_user.id  # sem rollback neste caminho: seguro
-        draft.decidido_em = datetime.now(timezone.utc)
+        draft.decidido_em = datetime.now(UTC)
         await db.commit()
         return {"ok": True, "needsOtp": True,
                 "message": "Autorizado. Conclua o envio com OTP na tela de pagamento/eSocial.",
@@ -341,7 +414,7 @@ async def aprovar_rascunho(
     try:
         entity_ref = await executar_rascunho(db, current_user, draft)
         draft.decidido_por = uid
-        draft.decidido_em = datetime.now(timezone.utc)
+        draft.decidido_em = datetime.now(UTC)
         await db.commit()
     except Exception as e:  # noqa: BLE001 — falha de execução vira status 'falha' durável, não 500 mudo
         await db.rollback()
@@ -349,7 +422,7 @@ async def aprovar_rascunho(
         d2.status = "falha"
         d2.erro_execucao = str(e)[:500]
         d2.decidido_por = uid
-        d2.decidido_em = datetime.now(timezone.utc)
+        d2.decidido_em = datetime.now(UTC)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Aprovado, mas a execução falhou: {e}")
     return {"ok": True, "id": entity_ref, "message": "Aprovado e executado com sucesso."}
@@ -370,7 +443,7 @@ async def rejeitar_rascunho(
     draft.status = "rejeitado"
     draft.erro_execucao = (payload.get("motivo") or "").strip()[:500] or None
     draft.decidido_por = current_user.id
-    draft.decidido_em = datetime.now(timezone.utc)
+    draft.decidido_em = datetime.now(UTC)
     await db.commit()
     return {"ok": True, "message": "Rascunho rejeitado."}
 
@@ -434,7 +507,7 @@ async def aprovar_lote(
         try:
             ref = await executar_rascunho(db, current_user, draft)
             draft.decidido_por = uid
-            draft.decidido_em = datetime.now(timezone.utc)
+            draft.decidido_em = datetime.now(UTC)
             await db.commit()
             executados.append({"id": did, "titulo": titulo, "ref": str(ref)})
         except Exception as e:  # noqa: BLE001 — falha de UM item não derruba o lote

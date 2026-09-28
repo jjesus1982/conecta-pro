@@ -329,11 +329,25 @@ async def _telas_uniforme(db, out, safe, tbl):
     )
 
     async def _f_lote():
+        # ⭐ 28/09/2026 — a entrega é INTEIRAMENTE a jusante da grade: `grade_id` é o único campo
+        # obrigatório sem default, e sai de `sst_uniforme_grade`. Com a grade vazia (o estado desde
+        # 12/09) esta tela abria com o select "SKU*" MUDO — zero opções e nenhuma explicação. Quem
+        # usa não tem como descobrir que falta semear o catálogo: abre, não entende, sai. Era a
+        # única razão pela qual `sst_uniforme_entregas` ficou em 0 linhas — nada quebrado, um
+        # beco sem saída silencioso. Vazio-real se declara ("aguardando dado"), não se esconde.
+        skus = await _opts(
+            db, "SELECT id, item || ' · ' || tamanho FROM sst_uniforme_grade WHERE ativo ORDER BY item, tamanho"
+        )
         return await _form(
             db,
             "uniforme-entrega-lote",
             "Entrega em lote (ou individual)",
-            "Escolha um posto (todos os alocados) e/ou liste CPFs, um por linha. Nasce como 'solicitado'.",
+            (
+                "Escolha um posto (todos os alocados) e/ou liste CPFs, um por linha. Nasce como 'solicitado'."
+                if skus
+                else "A grade está vazia — não há SKU para entregar. Cadastre o item em "
+                "'Uniforme/EPI · Novo SKU' (item, tamanho, mínimo e máximo) e volte aqui."
+            ),
             "Solicitar",
             "/api/v1/redesign/action/uniforme-entrega-lote",
             [
@@ -342,10 +356,7 @@ async def _telas_uniforme(db, out, safe, tbl):
                     "label": "SKU*",
                     "type": "select",
                     "span": "span 2",
-                    "options": await _opts(
-                        db,
-                        "SELECT id, item || ' · ' || tamanho FROM sst_uniforme_grade WHERE ativo ORDER BY item, tamanho",
-                    ),
+                    "options": skus,
                 },
                 {"key": "quantidade", "label": "Quantidade por pessoa*", "type": "text", "value": "1"},
                 {
