@@ -84,10 +84,31 @@ zero batida — porque ali não há trabalho histórico nenhum a que o documento
 | Lente | Status | Evidência |
 |---|---|---|
 | DADO | ✅ | ensaio real: 8 kits, 53 pessoas, 2 remoções, contagem conferida ao documento |
-| TELA | ⚠️ **parcial** | despachante 200 com os campos e padrões certos; **não abri o navegador** |
+| TELA | ✅ **verificada no navegador** | Playwright: ensaio rodado, 4 colunas renderizadas, motivos por extenso |
 | CÓDIGO | ✅ | 23 oráculos de ponto/folha/kit verdes por código de saída |
 
-⚠️ A lente TELA está parcial de propósito e não vou dizer que está verde: medi o **contrato** que
-o front recebe, não o clique. Falta alguém abrir `/redesign/documentos` e rodar o ensaio no
-navegador — os campos podem estar certos no JSON e a tela não renderizar a coluna «Por quê», que
-é justamente a que dá à Pyetra o direito de discordar.
+## ✅ RETIFICAÇÃO — a lente TELA foi fechada (11:25)
+
+Este relatório dizia «não abri o navegador». **Abri.** E a desconfiança registrada ali estava
+certa, quase palavra por palavra: *«os campos podem estar certos no JSON e a tela não renderizar
+a coluna Por quê»*.
+
+Era pior: a coluna renderizava e **ficava coberta**. O selo de «O que acontece» era desenhado por
+cima do texto do motivo — **97 px de sobreposição medidos por geometria**, nas três linhas. O
+despachante devolvia 200 com tudo certo.
+
+🔴 Causa: `.rd-pill` é `white-space: nowrap` (`redesign.css:327`); o selo ocupa 216 px fixos e não
+cabia nos ~118 px que `1fr` dava à coluna. **Não toquei no `.rd-pill`** — vale para 342 telas.
+Corrigi a grade desta tela: `minmax(108px,1fr) minmax(92px,1fr) auto minmax(148px,2fr)`.
+
+⚠️ Duas correções minhas foram insuficientes antes da certa, e as duas ensinam:
+- `1.8fr` deixou 18 px. **Fração é proporção; o selo tem largura fixa** que muda com o texto.
+- mínimos de 150+120+200 num orçamento de ~414 fizeram a sobreposição **voltar**. **Mínimo que
+  não cabe não é mínimo — é transbordo com outro nome.**
+
+Trava: `frontend/e2e/documentos/kits-conferir-ensaio.spec.ts`. A asserção que pegou tudo isso não
+é «HTTP 200» nem «texto presente»: é **geometria** — as caixas do selo e do motivo não podem se
+interseccionar. Texto presente teria passado com o texto coberto.
+
+⚠️ **Não deployado**: o disco tem 5 arquivos de WIP de outra sessão. Está por `docker cp`
+(volátil) e entra na imagem no próximo bake legítimo.
