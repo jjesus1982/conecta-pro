@@ -7,8 +7,14 @@ Ver o comentário em `_visao()` para os números que motivaram.
 import asyncio
 import logging
 import os
-from datetime import date, datetime
+import re
+from datetime import date, datetime, timedelta
 
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import text
+
+from core.auth.dependencies import CurrentActiveUser
+from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import (
     IC,
     S,
@@ -108,6 +114,10 @@ def _completude_drive(competencia: str, blocos: dict | None = None) -> dict:
     return completude_kits(competencia, blocos)
 
 
+#: 29/09/2026 — logger de MÓDULO. O arquivo tinha `_log` criado DENTRO de duas funções, e as
+#: funções novas do fim do arquivo o usariam sem existir. Um logger no módulo, não três locais.
+_log = logging.getLogger(__name__)
+
 SLUG = "documentos"
 
 logger = logging.getLogger(__name__)
@@ -156,6 +166,21 @@ EXTRA_MENU: list[dict] = [
         "label": "Agendamento do GED (envio)",
         "icon": _ICO_D,
         "grupo": "GED — coleta e config",
+    },
+    # 29/09/2026 — as duas telas que faltavam para a Pyetra não depender de terminal. A
+    # conferência vem ANTES de «Documentos por kit» no menu de propósito: conferir é o passo
+    # que se faz primeiro, e ordem de menu é instrução de uso.
+    {
+        "id": "kits-conferir",
+        "label": "Conferir kits do mês",
+        "icon": "M3 3v18h18",
+        "grupo": "Kits documentais",
+    },
+    {
+        "id": "kit-definir-condominio",
+        "label": "Definir condomínio de quem ficou sem",
+        "icon": "M3 3v18h18",
+        "grupo": "Kits documentais",
     },
     {"id": "kit-documentos", "label": "Documentos por kit", "icon": "M3 3v18h18", "grupo": "Kits documentais"},
     {
@@ -602,13 +627,167 @@ async def build(db) -> dict:
         },
         "fields": [],
     }
-    out["kits-montar"] = {
-        "title": "Montar kits do mês",
-        "sub": "Cria o kit dos clientes ativos que ainda não têm kit no mês corrente. Não sobrescreve kit existente.",
-        "cta": "Montar",
+    # ── 29/09/2026 — A PYETRA PRECISA ESCOLHER O MÊS. ───────────────────────────────────
+    # Medido: as três telas de kit tinham a competência EMBUTIDA no endpoint, fixada no mês
+    # corrente. Em 29/09 o botão gerava setembro, e o kit que ela entrega agora é **agosto**
+    # (salário em arrears). Ela não usa terminal: sem campo, o mês certo era inalcançável.
+    #
+    # ⭐ E esta tela apontava para `/ged/kits/montar`, que fixa `date.today()` DENTRO da rota e
+    # não aceita parâmetro. O orquestrador de verdade é o do GEDEON — `/gedeon/kits/montagem` —
+    # que já aceita competência, condomínios e blocos, roda no celery e devolve `task_id`.
+    # Ele já usa `_competencia_anterior()` como padrão: o Gedeon sempre soube que o kit de
+    # setembro é competência agosto. A tela é que não perguntava.
+    #
+    # ⚠️ O Gedeon usa competência **MM.AAAA (ponto)** e o `gerar-docs-mes` usa **MM/AAAA
+    # (barra)**. Dois formatos para a mesma coisa, e é a pessoa que paga pelo deslize — por isso
+    # o rótulo e o placeholder dizem o formato de cada tela, sem abreviar.
+    _ant = (date.today().replace(day=1) - timedelta(days=1))
+    _comp_ant = f"{_ant.month:02d}.{_ant.year}"
+    # ── 29/09/2026 · CONFERIR KITS DO MÊS ────────────────────────────────────────────────
+    # A Pyetra reclamou de kit com documento de outro condomínio («salvei o Kit do Mirante e
+    # veio informação do Fiori»). Medido em 28/09: o EULER FELIPE tinha documento em TRÊS kits
+    # — Laranjeiras (onde trabalhou), Mirante e Prime Arena. Dois clientes recebiam folha de
+    # pagamento de um estranho: é vazamento de dado pessoal, não desorganização.
+    #
+    # Até hoje a única forma de consertar era um script meu no terminal. Esta tela põe isso na
+    # mão dela, com ENSAIO por padrão: ela vê quem sai de qual kit e POR QUÊ antes de aplicar.
+    # ⭐ Mostrar o motivo é o que permite ela DISCORDAR — sem isso a tela pede fé, não decisão.
+    out["kits-conferir"] = {
+        "title": "Conferir kits do mês",
+        "sub": (
+            f"Compara cada kit com quem realmente trabalhou naquele condomínio na competência. "
+            f"O padrão é **{_ant:%m/%Y}** e **Ensaio** — em ensaio NADA é alterado, só listado, "
+            "com o motivo de cada linha. Remove apenas o VÍNCULO pessoa×kit: o PDF continua no "
+            "disco e o documento continua existindo para a pessoa."
+        ),
+        "cta": "Conferir",
         "type": "form",
-        "submit": {"endpoint": "/api/v1/ged/kits/montar", "okMsg": "Kits montados"},
-        "fields": [],
+        "submit": {
+            "endpoint": "/api/v1/redesign/action/kits-conferir",
+            "okMsg": "Conferência concluída — veja a tabela.",
+            "showResult": True,
+        },
+        "fields": [
+            {
+                "key": "competencia",
+                "label": "Competência (MM/AAAA)*",
+                "type": "text",
+                "value": f"{_ant:%m/%Y}",
+                "ph": f"Ex.: {_ant:%m/%Y} — use BARRA nesta tela",
+            },
+            {
+                "key": "acao",
+                "label": "O que fazer*",
+                "type": "select",
+                "value": "ensaio",
+                "options": [
+                    {"value": "ensaio", "label": "Ensaio — só mostrar, não alterar"},
+                    {"value": "aplicar", "label": "Aplicar — remover os vínculos indevidos"},
+                ],
+            },
+        ],
+    }
+
+    # ── 29/09/2026 · QUEM FICOU SEM CONDOMÍNIO ───────────────────────────────────────────
+    # O roster acha o condomínio pelo `posto_id` gravado na batida, e resolve 60 de 63. As que
+    # sobram não têm posto em NENHUMA batida do mês, e aí só um humano sabe. Em 28/09 eu
+    # perguntei ao Jordan por WhatsApp e escrevi a resposta numa constante de script — o que não
+    # serve, porque a Pyetra não edita Python e decisão de produção não mora em código.
+    #
+    # ⚠️ NÃO oferece «deduzir pela alocação»: a alocação diz onde a pessoa está HOJE, e as datas
+    # dela são ficção (a do RILEM ao GREEN HILLS diz 01/01/2026 num condomínio que abriu em
+    # 01/09). Deduzir ali foi o erro que o Jordan pegou. A tela pergunta em vez de chutar.
+    _conds = await _condominios_do_mes(db)
+    out["kit-definir-condominio"] = {
+        "title": "Definir condomínio de quem ficou sem",
+        "sub": (
+            "Use quando «Conferir kits do mês» listar alguém como «sem condomínio». Acontece "
+            "quando as batidas da pessoa no mês não gravaram o posto — então o sistema não tem "
+            "como saber, e **pergunta em vez de chutar**. Fica registrado com o seu nome."
+        ),
+        "cta": "Definir",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/redesign/action/kit-definir-condominio",
+            "okMsg": "Condomínio definido — rode «Conferir kits do mês» de novo para ver o efeito.",
+        },
+        "fields": [
+            {
+                "key": "competencia",
+                "label": "Competência (MM/AAAA)*",
+                "type": "text",
+                "value": f"{_ant:%m/%Y}",
+                "ph": f"Ex.: {_ant:%m/%Y}",
+            },
+            {
+                "key": "employee_id",
+                "label": "Colaborador*",
+                "type": "select",
+                "span": "span 2",
+                "options": await _sem_condominio_opcoes(db, f"{_ant:%Y-%m}-01"),
+            },
+            {
+                "key": "condominio",
+                "label": "Condomínio onde trabalhou nesse mês*",
+                "type": "select",
+                "span": "span 2",
+                "options": _conds,
+            },
+            {
+                "key": "motivo",
+                "label": "Como você sabe? (fica no registro)",
+                "type": "textarea",
+                "span": "span 2",
+                "max": 300,
+                "ph": "Ex.: cobriu o posto no lugar de outra pessoa; confirmado com a supervisão.",
+            },
+        ],
+    }
+
+    out["kits-montar"] = {
+        "title": "Montar kits do mês (Gedeon)",
+        "sub": (
+            f"Dispara o orquestrador do Gedeon para a competência escolhida. O padrão é "
+            f"**{_comp_ant}** — o mês ANTERIOR, porque o kit entregue agora documenta o mês "
+            "fechado. Roda em fila e devolve um número de tarefa para acompanhar; nada "
+            "acontece na hora. Deixe os blocos em branco para montar tudo."
+        ),
+        "cta": "Montar kits",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/gedeon/kits/montagem",
+            "okMsg": "Montagem enfileirada — acompanhe em «Conferência dos kits (ATLAS)».",
+            "confirm": "Dispara a montagem do kit da competência informada. Confirma?",
+        },
+        "fields": [
+            {
+                "key": "competencia",
+                "label": "Competência (MM.AAAA)*",
+                "type": "text",
+                "value": _comp_ant,
+                "ph": f"Ex.: {_comp_ant} — use PONTO, não barra (é o formato do Gedeon)",
+            },
+            {
+                "key": "blocos",
+                "label": "Blocos (vazio = todos)",
+                "type": "multiselect",
+                "span": "span 2",
+                "options": [
+                    {"value": b, "label": l}
+                    for b, l in (
+                        ("folha", "Folha (contracheques)"),
+                        ("guias", "Guias (INSS/FGTS/ISS)"),
+                        ("pagamentos", "Pagamentos (comprovantes do banco)"),
+                        ("vavt", "VA / VT"),
+                        ("rescisao", "Rescisões"),
+                        ("cnds", "CNDs e CRF"),
+                        ("nfse", "NFS-e / DANFSe"),
+                        ("ponto", "Folha de ponto"),
+                        ("sistema", "Documentos do sistema"),
+                    )
+                ],
+            },
+        ],
     }
 
     # ── Rotas de QUERY PARAM ligadas SEM tela de campo (2026-08-10) ──────────────────
@@ -622,30 +801,66 @@ async def build(db) -> dict:
     # competencia errada em silencio. Embutir o mes corrente CORRIGE isso.
     _hoje = date.today()
     _comp = f"{_hoje.year:04d}-{_hoje.month:02d}"
+    # 29/09/2026 — as duas rotas abaixo leem QUERY, e `submit.query` manda os campos na URL
+    # preservando o que já está fixo no endpoint (ModuleView.tsx:739). Então dar o campo à
+    # Pyetra não custou rota nova: custou trocar a competência embutida por um campo com o mês
+    # anterior como padrão. O comportamento de quem só clica continua o mesmo.
     out["kits-pdfs-mes"] = {
-        "title": f"Gerar PDFs dos kits — {_hoje.month:02d}/{_hoje.year}",
-        "sub": "Gera os PDFs de todos os kits da competência corrente. A competência é a de "
-        "hoje, não a do sistema (o padrão da rota está preso em março/2026).",
+        "title": "Gerar PDFs dos kits",
+        "sub": (
+            f"Gera os PDFs de todos os kits da competência escolhida. O padrão é **{_ant:%m/%Y}** "
+            "(mês anterior), que é o kit entregue agora. O campo é o PRIMEIRO DIA do mês — o "
+            "padrão da própria rota está preso em março/2026, então o campo não é opcional na "
+            "prática: em branco, ela geraria março."
+        ),
         "cta": "Gerar PDFs",
         "type": "form",
         "submit": {
-            "endpoint": f"/api/v1/ged/kits/generate-all-pdfs?reference_month={_comp}-01",
+            "endpoint": "/api/v1/ged/kits/generate-all-pdfs",
+            "query": True,
             "okMsg": "Geração dos PDFs disparada",
-            "confirm": f"Gera os PDFs de TODOS os kits de {_hoje.month:02d}/{_hoje.year}. Confirma?",
+            "confirm": "Gera os PDFs de TODOS os kits da competência informada. Confirma?",
         },
-        "fields": [],
+        "fields": [
+            {
+                "key": "reference_month",
+                "label": "Competência — primeiro dia do mês*",
+                "type": "date",
+                "value": f"{_ant:%Y-%m}-01",
+                "ph": "AAAA-MM-01",
+            },
+        ],
     }
     out["kit-real-mes"] = {
-        "title": f"Gerar kits reais — {_hoje.month:02d}/{_hoje.year}",
-        "sub": "Monta os kits reais (com documento de verdade) da competência corrente.",
+        "title": "Gerar kits reais",
+        "sub": (
+            f"Monta os kits reais (com documento de verdade) da competência escolhida. O padrão "
+            f"é **{_ant:%m/%Y}**. Em branco a rota cai no default dela, que é março/2026."
+        ),
         "cta": "Gerar kits",
         "type": "form",
         "submit": {
-            "endpoint": f"/api/v1/ged/kit-real/gerar-todos?mes={_hoje.month}&ano={_hoje.year}",
+            "endpoint": "/api/v1/ged/kit-real/gerar-todos",
+            "query": True,
             "okMsg": "Geração dos kits reais disparada",
-            "confirm": f"Gera os kits reais de TODOS os clientes em {_hoje.month:02d}/{_hoje.year}. Confirma?",
+            "confirm": "Gera os kits reais de TODOS os clientes na competência informada. Confirma?",
         },
-        "fields": [],
+        "fields": [
+            {
+                "key": "mes",
+                "label": "Mês*",
+                "type": "select",
+                "value": str(_ant.month),
+                "options": [{"value": str(m), "label": f"{m:02d}"} for m in range(1, 13)],
+            },
+            {
+                "key": "ano",
+                "label": "Ano*",
+                "type": "select",
+                "value": str(_ant.year),
+                "options": [{"value": str(a), "label": str(a)} for a in range(_ant.year - 1, _ant.year + 2)],
+            },
+        ],
     }
     out["sophia-reindexar"] = {
         "title": "Re-indexar acervo (SOPHIA v2)",
@@ -1785,4 +2000,343 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
             {"key": "mes_ref", "label": "Mês de referência (AAAA-MM, opcional)", "type": "text", "span": "span 1"},
             selecionar("force_resync", "Forçar ressincronização?", _SN, "span 1"),
         ],
+    }
+
+
+# =============================================================================
+# 29/09/2026 · AS DUAS AÇÕES QUE TIRAM A PYETRA DO TERMINAL
+#
+# Até hoje, conferir um kit torto e resolver quem ficou sem condomínio só era possível por
+# script meu. Ela não usa terminal — então a capacidade existia e não era dela.
+#
+# A regra NÃO mora aqui: mora em `kit_roster_service`, a mesma que o script consome. Duas
+# cópias divergiriam na primeira mudança, e esta regra mudou três vezes em um dia.
+# =============================================================================
+router = APIRouter()
+
+
+def _comp_de_texto(txt: str) -> date:
+    """«08/2026» → date(2026, 8, 1). Recusa o resto em vez de adivinhar.
+
+    Aceita barra E ponto porque o Gedeon usa MM.AAAA e esta tela usa MM/AAAA — duas convenções
+    vivas no mesmo produto, e quem erraria o separador é a pessoa, não o código.
+    """
+    m = re.match(r"^\s*(\d{1,2})\s*[/.]\s*(\d{4})\s*$", str(txt or ""))
+    if not m:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe a competência como MM/AAAA (ex.: 08/2026).",
+        )
+    mes, ano = int(m.group(1)), int(m.group(2))
+    if not 1 <= mes <= 12:
+        raise HTTPException(status_code=400, detail=f"Mês inválido: {mes}.")
+    return date(ano, mes, 1)
+
+
+async def _condominios_do_mes(db) -> list[dict]:
+    """Opções de condomínio para a competência anterior — só quem teve batida no mês."""
+    from starlette.concurrency import run_in_threadpool
+
+    from core.database.session import get_sync_db
+    from modules.people_management.ged.services.kit_roster_service import condominios_conhecidos
+
+    ant = date.today().replace(day=1) - timedelta(days=1)
+
+    def _ler() -> list[str]:
+        with get_sync_db() as sdb:
+            return condominios_conhecidos(sdb, ant)
+
+    try:
+        return [{"value": c, "label": c} for c in await run_in_threadpool(_ler)]
+    except Exception as exc:  # noqa: BLE001 — select vazio é melhor que tela que não abre
+        _log.warning("condominios do mes: %s", exc)
+        return []
+
+
+async def _sem_condominio_opcoes(db, comp_iso: str) -> list[dict]:
+    """Opções de colaborador para quem bateu no mês e o sistema não sabe onde."""
+    from starlette.concurrency import run_in_threadpool
+
+    from core.database.session import get_sync_db
+    from modules.people_management.ged.services.kit_roster_service import sem_condominio
+
+    comp = date.fromisoformat(comp_iso)
+
+    def _ler() -> list[tuple[str, str, int]]:
+        with get_sync_db() as sdb:
+            return [(e, n, q) for e, (n, q) in sem_condominio(sdb, comp).items()]
+
+    try:
+        itens = sorted(await run_in_threadpool(_ler), key=lambda x: -x[2])
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("sem_condominio opcoes: %s", exc)
+        return []
+    if not itens:
+        # Lista vazia é RESULTADO, não erro: diz isso em vez de deixar um select mudo.
+        return [{"value": "", "label": "— ninguém pendente nesta competência —"}]
+    return [{"value": e, "label": f"{n} ({q} batida(s) no mês)"} for e, n, q in itens]
+
+
+@router.post("/action/kits-conferir")
+async def rd_kits_conferir(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """Confere os kits da competência contra quem realmente trabalhou lá. ENSAIO por padrão.
+
+    ⭐ `acao=ensaio` é o default no builder E aqui: quem chamar sem dizer nada NÃO altera nada.
+    Ato destrutivo nunca é o caminho de menos digitação.
+
+    Remove apenas o VÍNCULO pessoa×kit em `ged_kit_documents`. O PDF no disco não é tocado e o
+    documento continua existindo para a pessoa — o que estava errado era ele estar no kit de
+    outro condomínio (medido: o EULER FELIPE aparecia em TRÊS, dois clientes recebendo folha de
+    pagamento de um estranho).
+
+    Guarda em `ged_kit_documents_removidos_<data>_tela` antes de remover e confere por LEITURA
+    POSTERIOR: «DELETE n» do driver não é prova, e isso já custou caro nesta casa.
+    """
+    import uuid as _uuid
+
+    from starlette.concurrency import run_in_threadpool
+
+    from core.database.session import get_sync_db
+    from modules.people_management.ged.services.kit_roster_service import plano_reconciliacao
+
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração e ao DP.")
+
+    comp = _comp_de_texto(payload.get("competencia"))
+    acao = (str(payload.get("acao") or "ensaio")).strip().lower()
+    if acao not in ("ensaio", "aplicar"):
+        raise HTTPException(status_code=400, detail="Ação deve ser «ensaio» ou «aplicar».")
+    quem = (
+        getattr(current_user, "name", None) or getattr(current_user, "email", None) or "desconhecido"
+    )
+
+    def _trabalho() -> dict:
+        with get_sync_db() as sdb:
+            plano = plano_reconciliacao(sdb, comp)
+            if acao != "aplicar":
+                return plano
+            alvo = [(x["kit_id"], x["employee_id"]) for x in plano["linhas"] if x["employee_id"]]
+            if not alvo:
+                plano["aplicado"] = 0
+                return plano
+            bkp = f"ged_kit_documents_removidos_{date.today():%Y%m%d}_tela"
+            par = {"k": [a[0] for a in alvo], "e": [a[1] for a in alvo]}
+            onde = (
+                " WHERE (kit_id::text, employee_id::text) IN "
+                "  (SELECT * FROM unnest(CAST(:k AS text[]), CAST(:e AS text[])))"
+            )
+            n_antes = sdb.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
+            sdb.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS {bkp} AS "  # noqa: S608 — nome derivado de data
+                    "SELECT *, now() AS removido_em, ''::text AS removido_por "
+                    "  FROM ged_kit_documents WHERE false"
+                )
+            )
+            sdb.execute(
+                text(f"INSERT INTO {bkp} SELECT *, now(), :q FROM ged_kit_documents {onde}"),  # noqa: S608
+                {**par, "q": quem},
+            )
+            guardadas = sdb.execute(text(f"SELECT count(*) FROM {bkp}")).scalar() or 0  # noqa: S608
+            if guardadas < n_antes:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"ABORTADO antes de remover: o backup guardou {guardadas} e eu ia apagar "
+                        f"{n_antes}. Remoção sem cópia de volta não acontece."
+                    ),
+                )
+            sdb.execute(text(f"DELETE FROM ged_kit_documents {onde}"), par)  # noqa: S608
+            sdb.execute(
+                text(
+                    "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
+                    "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module) "
+                    "VALUES (:id, now(), 'kit.vinculos_removidos', 'ged_kit_documents', :ent, :d, "
+                    "  'operacional.documentos', '00000000-0000-0000-0000-000000000000', :q, 'dp', 'ged')"
+                ),
+                {
+                    "id": str(_uuid.uuid4()),
+                    "ent": f"{comp:%Y-%m}",
+                    "q": quem,
+                    "d": (
+                        f"{len(alvo)} vínculo(s) pessoa×kit e {n_antes} linha(s) de documento "
+                        f"removidos da competência {comp:%m/%Y} pela tela «Conferir kits do mês». "
+                        f"Motivo por linha: a pessoa trabalhou em outro condomínio no mês. "
+                        f"Reversível em {bkp}. PDFs no disco intactos."
+                    ),
+                },
+            )
+            sdb.commit()
+            # PROVA POR LEITURA POSTERIOR — depois do commit, não antes.
+            sobrou = sdb.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
+            if sobrou:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"A remoção não se confirmou na leitura: restaram {sobrou} linha(s).",
+                )
+            plano["aplicado"] = n_antes
+            plano["backup"] = bkp
+            return plano
+
+    plano = await run_in_threadpool(_trabalho)
+    r = plano["resumo"]
+    rows: list[dict] = []
+    for x in plano["linhas"]:
+        rows.append(
+            {
+                "cells": [
+                    t(x["condominio"][:34], 600, "#0F1B3A"),
+                    t(x["pessoa"][:32]),
+                    b(x["acao"][:38], "bad" if x["employee_id"] else "mut"),
+                    t(x["motivo"], 400, "#475569"),
+                ]
+            }
+        )
+    for x in plano["sem_condominio"]:
+        rows.append(
+            {
+                "cells": [
+                    t("— sem condomínio —", 600, "#B45309"),
+                    t(x["pessoa"][:32]),
+                    b("precisa de decisão sua", "warn"),
+                    t(
+                        f"{x['batidas']} batida(s) no mês e nenhuma gravou o posto. Use «Definir "
+                        f"condomínio de quem ficou sem» — o sistema não deduz, porque deduzir "
+                        f"pela alocação já pôs gente no condomínio errado.",
+                        400,
+                        "#B45309",
+                    ),
+                ]
+            }
+        )
+    aplicado = plano.get("aplicado")
+    msg = (
+        f"Competência {r['competencia']} · {r['kits']} kit(s) de cliente · "
+        f"{r['pessoas_no_roster']} pessoa(s) no roster · "
+        + (
+            (
+                f"**{aplicado} linha(s) de documento removida(s)**, reversível em "
+                f"`{plano.get('backup')}`. "
+                if aplicado
+                # Zero removido não ganha frase de backup: «reversível em None» é ruído que
+                # faz a pessoa procurar uma tabela que não existe.
+                # «Já estão de acordo» seria contradição quando há pendência: a frase e o
+                # aviso de pendência sairiam na MESMA mensagem dizendo coisas opostas.
+                else (
+                    "**Nada a remover** — nenhum vínculo indevido entre os que o sistema sabe julgar. "
+                    if r["sem_condominio"]
+                    else "**Nada a remover** — os kits estão de acordo com quem trabalhou. "
+                )
+            )
+            if aplicado is not None
+            else f"**ENSAIO** — nada foi alterado. {r['a_remover']} vínculo(s) a remover. "
+        )
+        + (f"{r['kits_sem_roster']} kit(s) sem roster (não tocados). " if r["kits_sem_roster"] else "")
+        + (f"⚠️ {r['sem_condominio']} pessoa(s) sem condomínio." if r["sem_condominio"] else "Ninguém sem condomínio.")
+    )
+    return {
+        "ok": True,
+        "message": msg,
+        "tabela": {
+            "cols": ["Condomínio", "Colaborador", "O que acontece", "Por quê"],
+            "grid": "1.1fr 1.1fr 1fr 2.4fr",
+            "rows": rows,
+        },
+    }
+
+
+@router.post("/action/kit-definir-condominio")
+async def rd_kit_definir_condominio(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """Grava o condomínio de quem o dado não sabe. É decisão HUMANA, e fica com nome e data.
+
+    Por que existe: o roster acha o condomínio pelo `posto_id` gravado na batida e resolve a
+    maioria. Quem não tem posto em nenhuma batida do mês não tem fonte — e a alternativa
+    tentadora (deduzir pela alocação) é justamente o erro que o Jordan pegou: a alocação diz
+    onde a pessoa está HOJE, e as datas dela são ficção.
+
+    Grava em `kit_condominio_manual`, chave (pessoa, competência) — a mesma pessoa não tem dois
+    condomínios no mês. Reenviar CORRIGE em vez de duplicar, porque errar e refazer é normal.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    from core.database.session import get_sync_db
+    from modules.people_management.ged.services.kit_roster_service import (
+        TABELA_MANUAL,
+        condominios_conhecidos,
+    )
+
+    if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Acesso restrito à administração e ao DP.")
+
+    comp = _comp_de_texto(payload.get("competencia"))
+    eid = str(payload.get("employee_id") or "").strip()
+    cond = str(payload.get("condominio") or "").strip()
+    motivo = str(payload.get("motivo") or "").strip()[:300]
+    if not eid:
+        raise HTTPException(status_code=400, detail="Escolha o colaborador.")
+    if not cond:
+        raise HTTPException(status_code=400, detail="Escolha o condomínio.")
+    quem = (
+        getattr(current_user, "name", None) or getattr(current_user, "email", None) or "desconhecido"
+    )
+
+    def _gravar() -> dict:
+        with get_sync_db() as sdb:
+            # O condomínio tem de ser um que EXISTIU na competência. Sem esta trava, um nome
+            # digitado ou colado de outro mês criaria um oitavo grupo silencioso — e o Green
+            # Hills (aberto em 01/09) é a prova de que "condomínio que existe" não basta:
+            # precisa ter existido NAQUELE mês.
+            validos = condominios_conhecidos(sdb, comp)
+            if cond not in validos:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"«{cond}» não teve ninguém batendo ponto em {comp:%m/%Y}. "
+                        f"Opções desta competência: {', '.join(validos) or '(nenhuma)'}."
+                    ),
+                )
+            nome = sdb.execute(
+                text("SELECT nome FROM employees WHERE id::text = :e"), {"e": eid}
+            ).scalar()
+            if not nome:
+                raise HTTPException(status_code=404, detail="Colaborador não encontrado.")
+            sdb.execute(
+                text(
+                    f"INSERT INTO {TABELA_MANUAL} "  # noqa: S608 — constante do serviço
+                    " (employee_id, competencia, condominio, motivo, definido_por) "
+                    "VALUES (CAST(CAST(:e AS text) AS uuid), :c, :cond, :m, :q) "
+                    "ON CONFLICT (employee_id, competencia) DO UPDATE SET "
+                    "  condominio = EXCLUDED.condominio, motivo = EXCLUDED.motivo, "
+                    "  definido_por = EXCLUDED.definido_por, "
+                    "  definido_em = (now() AT TIME ZONE 'America/Manaus')"
+                ),
+                {"e": eid, "c": comp, "cond": cond, "m": motivo or None, "q": quem},
+            )
+            sdb.commit()
+            # PROVA POR LEITURA POSTERIOR
+            conf = sdb.execute(
+                text(
+                    f"SELECT condominio FROM {TABELA_MANUAL} "  # noqa: S608
+                    " WHERE employee_id::text = :e AND competencia = :c"
+                ),
+                {"e": eid, "c": comp},
+            ).scalar()
+            if conf != cond:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"A gravação não se confirmou na leitura (achei «{conf}»).",
+                )
+            return {"nome": nome, "cond": cond}
+
+    r = await run_in_threadpool(_gravar)
+    return {
+        "ok": True,
+        "message": (
+            f"{r['nome']} → {r['cond']} em {comp:%m/%Y}, registrado com o seu nome. "
+            "Rode «Conferir kits do mês» de novo para ver o efeito."
+        ),
     }

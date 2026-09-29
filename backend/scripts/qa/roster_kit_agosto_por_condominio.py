@@ -22,8 +22,8 @@ Decisões do Jordan em 28/09/2026:
 
 Sobra `gp_clock_punches.posto_id`, gravado no momento do fato: resolve **60 de 63** pessoas que
 bateram em agosto. As 3 restantes não têm posto em NENHUMA batida, e para elas a única fonte
-legítima é o Jordan — está em `RESOLVIDO_PELO_JORDAN`, com data. Adivinhar pela alocação
-repetiria o erro do Green Hills.
+legítima é um humano — mora na tabela `kit_condominio_manual`, com quem definiu e quando, e a
+Pyetra edita pela tela «Conferir kits do mês». Adivinhar pela alocação repetiria o Green Hills.
 
 ⚠️ `Conecta Village` é posto da PRÓPRIA CONECTAMAIS ELETRONICA. Doze pessoas trabalhavam lá e a
 operação encerrou em 31/08 (zero turnos em setembro nos 6 postos). Têm documento de agosto e
@@ -43,11 +43,17 @@ from core.database.session import get_sync_db  # noqa: E402
 COMP_INI, COMP_FIM = "2026-08-01", "2026-09-01"
 #: Postos da própria empresa. O kit é documento do CLIENTE — o que é nosso não entra.
 CASA = "CONECTAMAIS ELETRONICA LTDA"
+#: Onde a resolução humana mora. Criada por `criar_kit_condominio_manual.py`.
+TABELA_MANUAL = "kit_condominio_manual"
 
-#: Quem bateu em agosto e NÃO tem posto em nenhuma batida. Resolvido pelo Jordan em 28/09/2026,
-#: perguntado nominalmente. É a única fonte aceitável: o dado não sabe, e a alocação MENTE
-#: (provado no Green Hills). Chave = nome exato em `employees.nome`.
-RESOLVIDO_PELO_JORDAN: dict[str, str] = {
+#: ⭐ 29/09/2026 — a resolução humana MUDOU DE LUGAR: saiu desta constante e foi para a tabela
+#: `kit_condominio_manual`, lida em `_resolucao_humana()`. POR QUÊ: a Pyetra não edita Python, e
+#: decisão de produção não mora em constante de script — ela tem de poder corrigir sozinha, na
+#: tela, com o nome dela no registro. As três que o Jordan respondeu por WhatsApp em 28/09 foram
+#: migradas para a tabela com atribuição e data.
+#:
+#: A constante fica APENAS como semente para banco novo (dev/homologação), nunca como fonte.
+SEMENTE_DEV: dict[str, str] = {
     "KELLY PATRICIA DA SILVA DE SOUZA": "Condomínio Ideal Flores da Cidade",
     # "keyson foi demitido em agosto" — em agosto tinha 48 turnos no Prime Arena
     "KEYSON DA SILVA PINTO": "Condomínio Prime Arena",
@@ -55,6 +61,26 @@ RESOLVIDO_PELO_JORDAN: dict[str, str] = {
     # trabalhou de 01 a 06/08. "estava no villa dei fiori"
     "EIDY CULIER DE CASTRO": "Condomínio Villa Dei Fiori",
 }
+
+
+def _resolucao_humana(db) -> dict[str, tuple[str, str]]:
+    """`{employee_id: (condomínio, quem definiu)}` — o que só um humano podia dizer.
+
+    Lê `kit_condominio_manual` da competência. Tabela AUSENTE devolve vazio em vez de estourar:
+    banco de dev sem a tabela ainda tem de conseguir montar o roster, e o relatório já mostra
+    quem ficou sem condomínio — a falta aparece, não vira silêncio.
+    """
+    try:
+        rows = db.execute(
+            text(
+                "SELECT employee_id::text, condominio, definido_por "
+                f"  FROM {TABELA_MANUAL} WHERE competencia = :c"  # noqa: S608 — constante do módulo
+            ),
+            {"c": COMP_INI},
+        ).all()
+    except Exception:  # noqa: BLE001 — tabela pode não existir
+        return {}
+    return {r[0]: (r[1], r[2]) for r in rows}
 
 
 def roster_por_condominio(db) -> tuple[dict[str, set[str]], dict[str, str]]:
@@ -80,9 +106,11 @@ def roster_por_condominio(db) -> tuple[dict[str, set[str]], dict[str, str]]:
     ).mappings():
         por_cond.setdefault(r["cond"], set()).add(r["eid"])
         nomes[r["eid"]] = r["nome"]
-    for nome, cond in RESOLVIDO_PELO_JORDAN.items():
-        eid = db.execute(text("SELECT id::text FROM employees WHERE nome = :n"), {"n": nome}).scalar()
-        assert eid, f"«{nome}» não existe em employees — confira o nome antes de montar o kit"
+    # A resolução humana vem da TABELA, editável pela Pyetra na tela.
+    for eid, (cond, _quem) in _resolucao_humana(db).items():
+        nome = db.execute(text("SELECT nome FROM employees WHERE id::text = :e"), {"e": eid}).scalar()
+        if not nome:
+            continue  # pessoa apagada depois da decisão: ignora, o relatório mostra a falta
         por_cond.setdefault(cond, set()).add(eid)
         nomes[eid] = nome
     return por_cond, nomes
@@ -92,6 +120,7 @@ def main() -> None:
     with get_sync_db() as db:
         # A + B — uma fonte só, compartilhada com `reconciliar_kit_agosto.py`.
         por_cond, nomes = roster_por_condominio(db)
+        manual = _resolucao_humana(db)
 
         # C — quem bateu em agosto e continua sem condomínio: aparece, nunca desaparece.
         todos_ago = {
@@ -136,9 +165,9 @@ def main() -> None:
     print(f"KIT DE AGOSTO · {len(por_cond)} condomínio(s) · {total} pessoa(s)\n")
     for cond in sorted(por_cond, key=lambda x: (-len(por_cond[x]), x)):
         print(f"  {cond:<36} {len(por_cond[cond]):>3}")
-    print(f"\nResolvidos pelo Jordan (o dado não tinha posto): {len(RESOLVIDO_PELO_JORDAN)}")
-    for n, c in RESOLVIDO_PELO_JORDAN.items():
-        print(f"  + {n} → {c}")
+    print(f"\nResolvidos por humano em `{TABELA_MANUAL}` (o dado não tinha posto): {len(manual)}")
+    for eid, (c, quem) in manual.items():
+        print(f"  + {nomes.get(eid, eid)} → {c}   [{quem}]")
     print(f"\nFora de kit de cliente — só bateram em posto NOSSO: {len(na_casa)}")
     if orfaos:
         print(f"\n⚠️ SEM CONDOMÍNIO, precisam do Jordan ({len(orfaos)}):")
