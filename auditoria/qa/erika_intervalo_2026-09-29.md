@@ -30,11 +30,18 @@ há um par de contingência 13:03 / 17:09 naquele dia. Foi essa batida órfã qu
 
 **Escala:** varri 30 dias procurando batidas com o mesmo tipo da anterior. São 113, mas **112 são
 outro problema** — `entrada` após `entrada` com 24 a 348 horas de intervalo, ou seja gente que
-nunca bateu a saída. **A ERIKA é o único caso em 30 dias** em que o tipo saiu errado por causa da
-janela de 14 horas.
+nunca bateu a saída.
+
+> 🔴 **RETIFICAÇÃO:** eu escrevi aqui «a ERIKA é o único caso em 30 dias» tendo olhado as 15
+> primeiras linhas da lista ordenada por data. **Contar é diferente de olhar o começo da lista.**
+> Medindo direito: «mesmo tipo em menos de 14h» dá **71** casos (duplo toque, retentativa em menos
+> de 1h); «mesmo tipo com um turno entre as duas» dá **217 em 90 dias** (todos gente que nunca
+> bateu a saída — problema OUTRO). Só **`saida` após `saida` cruzando um turno** isola este
+> defeito: **1 caso em 90 dias**, além do dela.
 
 ⚠️ E ela segue travada: com `feitas = 1` agora, a próxima batida que o app oferece é **`saida`**
 de novo. **Ela não consegue registrar a entrada de hoje de jeito nenhum.**
+> ✅ **Resolvido às 13:35**, com autorização do Jordan — ver a retificação no fim desta seção.
 
 ## 2 · ⚠️ Os botões de almoço não existem para ela — e isso é projeto, não defeito
 
@@ -53,21 +60,29 @@ FRANCISCO RAMON.
 intrajornada em setembro, ou a marca foi posta por engano? Se ela de fato almoça, o intervalo
 dela está deixando de ser registrado desde então — e a jornada conta errado.
 
-## O que eu NÃO fiz
+## O que eu NÃO fiz — e o que MUDOU depois
 
-- **Não retipei a batida dela.** Mudar o tipo de uma batida é mexer em registro de jornada, que
-  é documento trabalhista. Precisa de quem tem autoridade — e de trilha.
-- **Não apaguei o par de 28/09.** Mesma razão, e pior: apagar batida é apagar fato.
-- **Não mexi na marca `recebe_intrajornada`.** É decisão de folha.
-- **Não consertei a janela de 14 horas.** O conserto certo é «turno novo agendado começa jornada
-  nova, independente da janela», mas é caminho quente, afeta todo mundo, e eu **não posso
-  deployar** — o disco tem WIP de outra sessão.
+Este relatório foi escrito às 13:20, **antes** de o Jordan autorizar. O que valia então:
+
+- não retipei a batida · não apaguei o par de 28/09 · não mexi na marca · não consertei a janela.
+
+> ✅ **RETIFICAÇÃO, 13:35–16:29 — o Jordan autorizou e três dos quatro foram feitos:**
+>
+> 1. **A batida foi retipada** (`saida` → `entrada`, id 20600), com cópia em
+>    `gp_clock_punches_backup_20260929_erika`, trilha `ponto.batida_retipada` e leitura posterior
+>    em transação separada.
+> 2. **A janela de 14h ganhou um terceiro piso**: o início de um turno agendado também abre
+>    jornada. Folga de 4h medida (5 batidas em 90 dias chegam além disso) e recuo de 8h para não
+>    quebrar quem chega cedo. No ar, com oráculo.
+> 3. **O par órfão de 28/09 continua lá** — apagar batida é apagar fato, e isso não foi pedido.
+> 4. **A marca `recebe_intrajornada` continua intocada** — decisão de folha.
 
 ## O que desbloqueia a ERIKA hoje
 
-1. O DP corrige o tipo da batida de 07:01 para `entrada` (com trilha).
-2. Confere o par órfão de 28/09 — dia sem turno dela.
-3. Decide a marca de intrajornada.
+1. ~~O DP corrige o tipo da batida de 07:01 para `entrada`~~ — **feito às 13:35**.
+2. Confere o par órfão de 28/09 — dia sem turno dela. **Aberto.**
+3. Decide a marca de intrajornada. **Aberto.**
+4. **Recadastrar o rosto** — a causa maior, descoberta às 19:10. **Aberto.**
 
 ⭐ Mais uma vez o achado veio de uma pessoa escrevendo no WhatsApp, não de varredura. Quinta
 hoje: MAURICIO (geofence), CELIANE (horário), TELMA (app travado), FRANCE (espelho zerado) e
