@@ -74,3 +74,39 @@ hoje: MAURICIO (geofence), CELIANE (horário), TELMA (app travado), FRANCE (espe
 agora a ERIKA. **As pessoas continuam encontrando o que as travas não encontram** — e a diferença
 é que hoje, em todos os casos, existia um dado no banco que explicava o problema e ninguém o
 estava lendo.
+
+---
+
+## ⭐ FECHAMENTO, 19:10 — a causa maior é uma terceira, e a telemetria a revelou em horas
+
+Às 19:01 a saída dela entrou **por contingência**: ela tentou pelo aplicativo e não conseguiu. O
+sensor gravou o motivo às 19:00:58 — **`nao_bateu`**, que no código significa *«o rosto enviado
+não casou com a referência na reconferência do servidor»*.
+
+**Não é o aplicativo travando. É o rosto dela não casando.**
+
+| | |
+|---|---|
+| rosto cadastrado em | **11/09/2026 19:04** |
+| recusas de rosto em 30 dias | **6 — todas dela**, de **13/09 a 29/09** |
+| as duas outras pessoas com recusa no período | **1 cada** |
+
+⭐ As recusas começam **dois dias depois do cadastro**. O cadastro facial dela está ruim desde o
+dia em que foi feito, e ela convive com isso há **dezesseis dias**.
+
+## O caso dela eram TRÊS coisas, não duas
+
+1. 🔴 **O rosto não casa** — a maior, e a que explica a contingência. *Conserto: recadastrar o
+   rosto (`POST /facial/cadastrar`, pelo navegador, no Meu Espaço).*
+2. 🔴 A chegada tipada como `saida` pela janela de 14h — **corrigida hoje**, na batida e no código.
+3. ⚠️ Os botões de intervalo não existem porque `recebe_intrajornada = true` — **decisão de folha**,
+   ainda aberta.
+
+## O que isto prova sobre o sensor
+
+O relógio e o registro de falha entraram no ar **hoje de manhã**. À noite eles responderam uma
+pergunta que ela vinha fazendo há dezesseis dias — e que, antes, só produziria mais uma mensagem
+de WhatsApp dizendo «não consigo».
+
+⚠️ E a jornada dela hoje ficou **completa pela primeira vez**: entrada 07:01 (retipada) e saída
+19:01 (contingência, pendente de validação do DP).
