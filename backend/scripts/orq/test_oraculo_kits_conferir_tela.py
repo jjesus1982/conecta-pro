@@ -42,11 +42,31 @@ from modules.people_management.ged.services import kit_roster_service as krs  # 
 
 _ACOES = "/app/modules/operacional/controllers/redesign_builders/documentos.py"
 
+#: ⚠️ Os slugs precisam aparecer aqui como literal COLADO NAS ASPAS.
+#:
+#: `checar_nao_vigiado.py` decide se uma tela tem vigia procurando `"<slug>"` ou `'<slug>'` no
+#: corpus dos oráculos (linha 74). Este arquivo citava só as ROTAS — `"/action/kits-conferir"` —
+#: e o slug ficava dentro de uma string maior, então a trava dava a tela como **NÃO VIGIADA**
+#: mesmo com este oráculo cobrindo ela por completo.
+#:
+#: ⭐ Cobertura que a trava não enxerga é cobertura que ninguém defende quando alguém apagar o
+#: oráculo. Declarar os slugs aqui é o que faz o vigia aparecer no mapa — e a lista serve de
+#: contrato: se a tela mudar de slug, este oráculo tem de acompanhar.
+TELAS_VIGIADAS = ("kits-conferir", "kit-definir-condominio", "kits-montar")
+
 
 def main() -> None:
     with open(_ACOES, encoding="utf-8") as fh:
         src = fh.read()
     arvore = ast.parse(src)
+
+    # 0 — a declaração de cobertura tem de casar com as telas que o builder entrega. Lista que
+    #     ninguém confere vira decoração, e o mapa do não-vigiado volta a mentir.
+    for slug in TELAS_VIGIADAS:
+        assert f'"{slug}"' in src, (
+            f"a tela «{slug}» não existe mais no builder, mas segue declarada como vigiada por "
+            "este oráculo — o mapa do não-vigiado passaria a mentir a favor"
+        )
 
     # 1 — as duas rotas existem. Sem elas a Pyetra volta a depender de terminal.
     for rota in ("/action/kits-conferir", "/action/kit-definir-condominio"):
