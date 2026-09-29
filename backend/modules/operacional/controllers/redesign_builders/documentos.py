@@ -643,6 +643,10 @@ async def build(db) -> dict:
     # o rótulo e o placeholder dizem o formato de cada tela, sem abreviar.
     _ant = (date.today().replace(day=1) - timedelta(days=1))
     _comp_ant = f"{_ant.month:02d}.{_ant.year}"
+    # A lista de condomínios da competência serve TRÊS telas (montar, definir, conferir):
+    # uma consulta, um significado.
+    _conds = await _condominios_do_mes(db)
+
     # ── 29/09/2026 · CONFERIR KITS DO MÊS ────────────────────────────────────────────────
     # A Pyetra reclamou de kit com documento de outro condomínio («salvei o Kit do Mirante e
     # veio informação do Fiori»). Medido em 28/09: o EULER FELIPE tinha documento em TRÊS kits
@@ -697,7 +701,6 @@ async def build(db) -> dict:
     # ⚠️ NÃO oferece «deduzir pela alocação»: a alocação diz onde a pessoa está HOJE, e as datas
     # dela são ficção (a do RILEM ao GREEN HILLS diz 01/01/2026 num condomínio que abriu em
     # 01/09). Deduzir ali foi o erro que o Jordan pegou. A tela pergunta em vez de chutar.
-    _conds = await _condominios_do_mes(db)
     out["kit-definir-condominio"] = {
         "title": "Definir condomínio de quem ficou sem",
         "sub": (
@@ -766,6 +769,19 @@ async def build(db) -> dict:
                 "type": "text",
                 "value": _comp_ant,
                 "ph": f"Ex.: {_comp_ant} — use PONTO, não barra (é o formato do Gedeon)",
+            },
+            {
+                # 29/09 — o Jordan perguntou: «ela consegue solicitar a montagem de kit POR
+                # CONDOMÍNIO?». Não conseguia: a rota do Gedeon aceita `condominios` desde
+                # sempre e a tela não oferecia o campo, então só dava para montar TODOS.
+                # A lista sai de quem teve batida na competência (mesma fonte do roster), não
+                # da tabela inteira: oferecer condomínio que não teve ninguém no mês convida
+                # ao erro, e o Green Hills (aberto em 01/09) é a prova.
+                "key": "condominios",
+                "label": "Condomínios (vazio = todos)",
+                "type": "multiselect",
+                "span": "span 2",
+                "options": _conds,
             },
             {
                 "key": "blocos",
@@ -1399,18 +1415,28 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
                 )
             )
         ).fetchall()
+        # 29/09 — o Jordan perguntou: «ela consegue anexar documentos faltantes, como por exemplo
+        # nota fiscal?». A resposta medida era NÃO, e por um motivo bobo: a ROTA aceita
+        # `document_type: str` — qualquer tipo — e a TELA oferecia três comprovantes. O título
+        # ainda dizia «comprovante do banco (exceção)», o que afastava dela justamente o uso que
+        # a Pyetra precisa.
+        #
+        # ⭐ Capacidade existia inteira na rota e a tela a estreitava. É a mesma família do
+        # geofence e do `tool_risk_manifest`: a coisa está lá e não chega a quem precisa.
         out["kit-anexar-comprovante"] = {
-            "title": "Anexar comprovante do banco ao kit (exceção)",
-            "sub": "O padrão é o comprovante GERADO pelo Conecta PRO, com os dados do extrato — é o que entra no kit "
-            "sozinho. Use esta tela só quando precisar do PDF oficial do banco num caso específico: o "
-            "arquivo anexado substitui o gerado naquele documento e fica protegido (a montagem automática "
-            "não sobrescreve o que foi anexado à mão).",
+            "title": "Anexar documento faltante ao kit",
+            "sub": "Para quando o documento não entrou sozinho na montagem: nota fiscal, CND, "
+            "folha de ponto, contracheque, comprovante do banco. O arquivo anexado SUBSTITUI o "
+            "gerado naquele documento e fica protegido — a montagem automática não sobrescreve o "
+            "que foi anexado à mão. ⚠️ Para NFS-e que já existe no sistema, prefira o botão "
+            "«Anexar NFS-e» na linha do kit em «Kits»: ele junta as notas reais da competência "
+            "sozinho, sem você procurar arquivo.",
             "cta": "Anexar",
             "type": "form",
             "submit": {
                 "endpoint": "/api/v1/people-management/ged/documents",
                 "multipart": True,
-                "okMsg": "Comprovante anexado ao kit. Recarregue.",
+                "okMsg": "Documento anexado ao kit. Recarregue.",
                 "showResult": True,
             },
             "fields": [
@@ -1422,9 +1448,26 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
                     [
                         {"value": v, "label": l}
                         for v, l in (
+                            # A rota aceita qualquer string; esta lista é a dos tipos que o kit
+                            # REALMENTE usa — medidos em `ged_kit_documents`. Lista aberta demais
+                            # convida a inventar tipo novo e quebrar o agrupamento do kit.
+                            ("nfse", "Nota fiscal de serviço (NFS-e)"),
+                            ("boleto", "Boleto"),
+                            ("folha_ponto", "Folha de ponto"),
+                            ("contracheque", "Contracheque"),
+                            ("recibo_adiantamento", "Recibo de adiantamento (40%)"),
                             ("comprovante_pagamento", "Comprovante de pagamento (salário/adiantamento)"),
                             ("comprovante_vt", "Comprovante de VT"),
                             ("comprovante_vr", "Comprovante de VR"),
+                            ("comprovante_va", "Comprovante de VA"),
+                            ("crf_fgts", "CRF do FGTS (Caixa)"),
+                            ("cnd_federal", "CND federal"),
+                            ("cnd_estadual", "CND estadual"),
+                            ("cnd_municipal", "CND municipal"),
+                            ("cndt_trabalhista", "CNDT trabalhista"),
+                            ("gfd_fgts_rescisao", "GFD/FGTS de rescisão"),
+                            ("comp_salario_individual", "Comprovante de salário individual"),
+                            ("outro", "Outro (descreva no nome)"),
                         )
                     ],
                     "span 1",
