@@ -112,3 +112,42 @@ Eu relatei «a Thayna bateu, o caso fecha» olhando só a existência da linha. 
 é a que o MAURICIO fez em uma frase: **onde ela estava?** Foi um vigilante, não uma trava, que
 achou isto — e é a terceira vez neste projeto que **as pessoas encontram o que a varredura não
 encontra**.
+
+---
+
+## ⭐ 24 HORAS DEPOIS, 19:20 — a jornada INTEIRA dela foi de fora, e só dela
+
+A THAYNA fechou o dia. As duas batidas da vida dela, as duas de hoje:
+
+| hora | tipo | distância do posto | rosto |
+|---|---|---:|---|
+| 07:01:07 | entrada | **4.959 m** | casou (0,895) |
+| 19:06:20 | saída | **7.804 m** | casou |
+
+E o dia inteiro da casa, para dar escala:
+
+| | batidas de hoje |
+|---|---:|
+| dentro da cerca | **75** |
+| **fora da cerca** | **2 — as duas dela** |
+| sem GPS (contingência) | 2 |
+
+⭐ **Não é um problema da cerca: é uma pessoa.** Setenta e cinco batidas de todo mundo caíram
+dentro; as duas de fora são da mesma pessoa, em pontos diferentes (5 km e 7,8 km), com o rosto
+conferido nas duas. Isso não parece GPS ruim de guarita nem raio cadastrado pequeno — parece
+alguém registrando ponto longe do posto.
+
+⚠️ **Não é acusação e eu não vou tratá-la como tal.** Pode ser posto com coordenada errada no
+cadastro, telefone com localização aproximada, ou ela estar de fato em outro lugar a serviço.
+**Só alguém perguntando a ela resolve** — e essa é exatamente a diferença entre um dado e uma
+conclusão.
+
+## O que MUDOU desde a manhã
+
+✅ **O agente não dirá mais que a rendição chegou.** A linha que o Hermes lê agora sai como
+«entrada BATIDA 07:01 ⚠️ FORA DO POSTO (4959 m)», e o prompt proíbe usar batida fora da cerca
+como prova de cobertura. Foi o pedido do MAURICIO, e está no ar.
+
+🔴 **A batida continua entrando sem marca.** A recomendação nº 1 deste relatório — nascer com uma
+justificativa `batida_fora_do_posto` pendente, para aparecer na mesa da Pyetra — **não foi feita**.
+Hoje ela só aparece para quem for olhar.
