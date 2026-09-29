@@ -24,6 +24,16 @@ def task_sync_guias_drive() -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("sync_guias_onvio falhou (o Drive já foi processado): %s", exc)
     # Depois das guias, o extrato: obrigação com valor e débito exato na janela = cumprida.
+    # Porta própria: a pasta de entrada não depende de Drive nem de Onvio (os dois são da
+    # contabilidade e fecham quando ela sair). Roda DEPOIS das outras duas de propósito —
+    # documento que já entrou por lá não é reprocessado, e o que só existe aqui entra igual.
+    try:
+        from modules.fiscal_contabil.obrigacoes.guias_drive_service import sync_guias_pasta
+
+        rel["pasta_entrada"] = sync_guias_pasta()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("sync_guias_pasta falhou (Drive e Onvio já foram processados): %s", exc)
+
     try:
         from modules.fiscal_contabil.obrigacoes.guias_drive_service import parear_obrigacoes_com_extrato
 

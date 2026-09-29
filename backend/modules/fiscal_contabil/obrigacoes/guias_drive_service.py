@@ -23,6 +23,7 @@ Idempotência: o file_id do Drive fica em `observacoes`; reprocessar não duplic
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
@@ -1144,6 +1145,80 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False, dias: int
             rel["erros"].append(f"{nome}: {type(exc).__name__}: {str(exc)[:160]}")
     db.close()
     rel["ok"] = not any(e.startswith("fatal") for e in rel["erros"])
+    return rel
+
+
+#: Pasta de ENTRADA própria — a porta que não depende da Portte.
+#:
+#: Hoje todo documento fiscal entra por duas portas de terceiro: o Drive e o Onvio, ambos
+#: alimentados pela contabilidade. Quando ela sair, as duas fecham e o sistema fica cego —
+#: com o agravante de que o sintoma é silencioso: o painel simplesmente para de ganhar guia
+#: nova e ninguém percebe até vencer um prazo.
+#:
+#: Esta é a terceira porta e é nossa: qualquer PDF largado aqui é lido pelo MESMO parser e
+#: aplicado pelos MESMOS aplicadores das outras duas. Nada de caminho paralelo — o que muda
+#: é só de onde o arquivo veio.
+PASTA_ENTRADA = "/app/uploads/entrada"
+
+
+def _despachar(db, g: GuiaParseada, meta: dict[str, Any], rel: dict[str, Any]) -> None:
+    """Roteia uma guia já parseada para o aplicador certo. Um só lugar para os três syncs."""
+    nome = meta.get("nome")
+    if g.tipo in NOMES:
+        if g.vencimento is None or g.valor is None:
+            rel.setdefault("sem_dado", []).append(f"{nome} ({g.tipo}: valor={g.valor}, vencimento={g.vencimento})")
+            return
+        acao = _upsert_obrigacao(db, g, meta)
+        rel.setdefault("guias", []).append(
+            {
+                "arquivo": nome,
+                "tipo": g.tipo,
+                "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
+                "valor": g.valor,
+                "vencimento": g.vencimento.isoformat() if g.vencimento else None,
+                "acao": acao,
+            }
+        )
+    elif g.tipo == "DCTFWEB_DECLARACAO":
+        rel.setdefault("acessorias", []).extend(_marcar_acessorias_cumpridas(db, g, meta))
+    elif g.tipo == "DCTFWEB_RECIBO":
+        rel.setdefault("recibos_dctfweb", []).append(aplicar_recibo_dctfweb(db, g, meta))
+    elif g.tipo == "PGDASD_DECLARACAO":
+        rel.setdefault("pgdasd", []).append(aplicar_declaracao_pgdasd(db, g, meta))
+    else:
+        rel.setdefault("nao_classificados", []).append(nome)
+
+
+def sync_guias_pasta(pasta: str | None = None, forcar: bool = False) -> dict[str, Any]:
+    """Lê todo PDF da pasta de entrada própria. Mesma máquina das outras portas.
+
+    Idempotente pelo caminho relativo do arquivo (`pasta:<rel>`), que é estável — o arquivo
+    fica onde está e é relido todo dia sem duplicar. Commit por arquivo: um PDF ruim não
+    derruba os bons, lição da 1ª passada do Onvio, que perdeu um lote inteiro por causa de
+    uma declaração sem vencimento.
+    """
+    raiz = pasta or PASTA_ENTRADA
+    rel: dict[str, Any] = {"ok": True, "pasta": raiz, "lidos": 0, "ja_processados": 0, "erros": []}
+    if not os.path.isdir(raiz):
+        return {**rel, "motivo": "pasta de entrada não existe"}
+    db = _db_sync()
+    try:
+        for caminho in sorted(glob.glob(os.path.join(raiz, "**", "*.pdf"), recursive=True)):
+            nome = os.path.basename(caminho)
+            fid = "pasta:" + os.path.relpath(caminho, raiz)
+            try:
+                if not forcar and _ja_processado(db, fid):
+                    rel["ja_processados"] += 1
+                    continue
+                rel["lidos"] += 1
+                g = parse_pdf_guia(caminho, nome)
+                _despachar(db, g, {"file_id": fid, "nome": nome, "pasta": raiz, "fonte": "pasta_entrada"}, rel)
+                db.commit()
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                rel["erros"].append(f"{nome}: {type(exc).__name__}: {str(exc)[:160]}")
+    finally:
+        db.close()
     return rel
 
 
