@@ -88,16 +88,23 @@ fato*. Bloquear troca um problema por um pior.
 | **THAYNA** (a rendição dele) | 29/09 **07:01:07** entrada | **4.959 m** — FORA |
 
 E o sistema pediu ao MAURICIO que **justificasse 18 minutos de atraso** — os mesmos 18 minutos em
-que ele esperou no posto a rendição que o sistema já tinha declarado presente. A justificativa caiu
-em `gp_justifications` como `saida_fora_horario`, **pendente, com o motivo VAZIO**.
+que ele esperou no posto a rendição que o sistema já tinha declarado presente.
+
+⚠️ **Retificação, 07:25:** eu escrevi aqui que a justificativa tinha o motivo VAZIO. Estava errado —
+minha medição pegou o meio do caminho. A linha nasce vazia e o agente a completa **quando a pessoa
+responde**: o MAURICIO respondeu «rendição atrasada» e o registro ficou
+*«Saída registrada às 07:18, 18 minutos após o previsto (07:00) — rendição atrasada»*,
+`saida_fora_horario` · `pendente`. **Isso é ponto a favor do sistema**, e eu quase o creditei como
+defeito por medir cedo demais.
 
 ⭐ Em uma linha: **quem estava comprovadamente no posto é cobrado; a batida a cinco quilômetros não
 gera apontamento nenhum.** É o mesmo padrão da TELMA em 28/09, cobrada por um atraso que a queda do
 próprio sistema causou.
 
-⚠️ E o motivo vazio é o problema já conhecido dos 50%: a linha chega à mesa da Pyetra sem história
-nenhuma para ela decidir. Quem vai julgar esses 18 minutos não tem, no registro, a informação de
-que a rendição bateu de fora do posto.
+⚠️ O que **continua faltando** no registro: a palavra dele está lá, mas **não está que a rendição
+bateu a 4.959 m do posto**. Quem julgar esses 18 minutos lê «rendição atrasada» e não tem como
+saber que a batida da rendição foi de fora — a informação que explica o atraso inteiro fica de fora
+da linha que decide sobre ele.
 
 ## A lição sobre mim
 
