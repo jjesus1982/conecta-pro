@@ -112,6 +112,61 @@ def roster(db, competencia: date) -> tuple[dict[str, set[str]], dict[str, str], 
         por_cond.setdefault(r["cond"], set()).add(r["eid"])
         nomes[r["eid"]] = r["nome"]
         motivo[f"{canon(r['cond'])}|{r['eid']}"] = f"{r['n']} batida(s) com este posto gravado"
+    # 🔴 29/09/2026 — AUSÊNCIA DOCUMENTADA TAMBÉM PERTENCE AO KIT.
+    #
+    # O roster era ancorado só na batida, e isso excluía quem estava AFASTADO ou de FÉRIAS: essas
+    # pessoas não batem, e a folha de ponto que mostra o afastamento **é** a documentação daquele
+    # mês para o cliente. Medido em 08/2026: dos alocados sem batida, ARYELTON (suspenso) e CINTIA
+    # (afastado_inss) têm afastamento SST registrado — pertencem ao kit; só o `candidato` não.
+    #
+    # ⭐ Sem isto o roster brigaria com o montador: `kit_builder_service` (que passou a respeitar a
+    # mesma regra hoje) põe a pessoa de noite e a conferência da Pyetra a tiraria de manhã, todo
+    # dia. Duas fontes discordando sobre o documento de alguém é pior que uma fonte imperfeita.
+    # ⚠️ LÊ `allocations`, NÃO `employee_alocacoes` — e isto foi um erro meu, corrigido na
+    # comparação com o builder. Existem DUAS tabelas de alocação e elas DISCORDAM:
+    #
+    #   FRANCISCO RAMON em agosto/2026:
+    #     `allocations`         → Laranjeiras (01/03 → 25/09)   ← concorda com as batidas dele
+    #     `employee_alocacoes`  → Villa dos Pássaros (desde 01/03)
+    #
+    # A primeira versão deste laço usava `employee_alocacoes` e o colocou no condomínio ERRADO.
+    # Medido: `allocations` cobre 93 pessoas, `employee_alocacoes` 65, com 28 só na primeira e
+    # ZERO só na segunda — ela é a fonte mais completa, e é a que `kit_builder_service` usa.
+    # Duas fontes para a mesma pergunta, e a escolha errada põe gente no kit do cliente errado.
+    for r in db.execute(
+        text(
+            "SELECT DISTINCT a.employee_id::text AS eid, e.nome, po.name AS cond "
+            "  FROM allocations a "
+            "  JOIN employees e ON e.id = a.employee_id "
+            "  JOIN posts po ON po.id = a.post_id "
+            "  JOIN clients c ON c.id = po.client_id "
+            " WHERE c.name <> :casa "
+            "   AND a.start_date < (CAST(:i AS date) + INTERVAL '1 month') "
+            "   AND (a.end_date IS NULL OR a.end_date >= CAST(:i AS date)) "
+            "   AND (EXISTS (SELECT 1 FROM sst_afastamentos sa "
+            "                 WHERE sa.employee_id::varchar = a.employee_id::varchar "
+            "                   AND sa.data_inicio < (CAST(:i AS date) + INTERVAL '1 month') "
+            "                   AND coalesce(sa.data_retorno, sa.data_fim_prevista, CAST(:i AS date)) "
+            "                       >= CAST(:i AS date)) "
+            "     OR EXISTS (SELECT 1 FROM hr_vacation_requests vr "
+            "                 WHERE vr.employee_id::varchar = a.employee_id::varchar "
+            "                   AND lower(coalesce(vr.status,'')) IN "
+            "                       ('aprovada','approved','hr_approved','gozando','concluida') "
+            "                   AND vr.start_date < (CAST(:i AS date) + INTERVAL '1 month') "
+            "                   AND vr.end_date >= CAST(:i AS date)))"
+        ),
+        {"i": ini, "casa": CASA},
+    ).mappings():
+        if not r["cond"]:
+            continue
+        # Reaproveita a chave já presente quando canonizam igual: `posts.name` (longo) e
+        # `condominios.nome` (curto) são dois vocabulários para o mesmo prédio, e sem isto o
+        # mesmo condomínio vira DOIS no roster — medido e corrigido hoje.
+        chave = next((c for c in por_cond if canon(c) == canon(r["cond"])), r["cond"])
+        por_cond.setdefault(chave, set()).add(r["eid"])
+        nomes[r["eid"]] = r["nome"]
+        motivo[f"{canon(chave)}|{r['eid']}"] = "alocado com ausência documentada (afastamento/férias)"
+
     for eid, (cond, quem) in resolucao_humana(db, competencia).items():
         nome = db.execute(text("SELECT nome FROM employees WHERE id::text = :e"), {"e": eid}).scalar()
         if not nome:

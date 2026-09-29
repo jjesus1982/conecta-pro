@@ -1058,8 +1058,26 @@ class KitBuilderService:
                     FROM allocations a
                     JOIN employees e ON e.id = a.employee_id
                     WHERE a.post_id = ANY(:post_ids)
-                      AND a.status = 'active'
-                      AND a.is_active = true
+                      -- 🔴 28/09/2026 (Pyetra: "Salvei o Kit do Mirante e veio informações do kit do Fiori").
+                      -- A filtragem era `status='active' AND is_active=true` — o estado de HOJE da alocação —
+                      -- num kit que é de um MÊS PASSADO. Resultado: a lista de pessoas do kit não dependia da
+                      -- competência. Medido em 28/09 chamando esta função para 03, 08 e 09/2026: DEVOLVEU A
+                      -- MESMA LISTA NAS TRÊS. No Mirante de 03/2026 vinha FRANCE CHARLES ALMEIDA DE SALES,
+                      -- cuja única alocação no Mirante começa em 25/09/2026 — seis meses depois; e faltavam
+                      -- MAURICIO ALVES CHAGAS e FERNANDA VINHOTE MACIEL, que estavam lá em março.
+                      -- Quem troca de posto leva os documentos do passado junto: CINTIA BEZERRA OLIVEIRA e
+                      -- EIDY CULIER DE CASTRO (Villa Dei Fiori desde 01/03, nunca no Mirante) têm 5 documentos
+                      -- cada nos kits do MIRANTE de 03, 04, 05 e 06/2026 — 40 documentos de gente do Fiori na
+                      -- prestação de contas do Mirante. Espelho: MAURICIO (Mirante 03→25/09) está nos kits do
+                      -- FIORI de 03 a 06.
+                      -- O certo é a JANELA da alocação cobrir a competência; `status` é estado corrente e não
+                      -- decide mês passado (todo 'terminated'/'ended' tem end_date preenchido — 32/32 em 28/09).
+                      -- Sem :ref (chamada legada em build_kits_for_month) mantém o critério antigo.
+                      AND (CAST(:ref AS date) IS NULL
+                           OR (a.start_date < (CAST(:ref AS date) + INTERVAL '1 month')
+                               AND (a.end_date IS NULL OR a.end_date >= CAST(:ref AS date))))
+                      AND (CAST(:ref AS date) IS NOT NULL
+                           OR (a.status = 'active' AND a.is_active = true))
                       -- 09/09/2026 (achado no 1º kit REAL, Michelangelo): quem foi DEMITIDO antes da competência
                       -- não entra. A alocação continua 'active' depois do desligamento e o kit de agosto trouxe
                       -- um artífice demitido em 22/07 — 4 vagas vazias que nunca teriam documento.
@@ -1070,11 +1088,98 @@ class KitBuilderService:
                       -- e quem foi admitido DEPOIS do fim da competência também não
                       AND (e.data_admissao IS NULL OR CAST(:ref AS date) IS NULL
                            OR e.data_admissao < (CAST(:ref AS date) + INTERVAL '1 month'))
+                      -- 🔴 29/09/2026 — ALOCADO NÃO É O MESMO QUE TRABALHOU. Autorizado pelo Jordan:
+                      -- «pode mexer no kit_incremental_diario, faz ele respeitar o roster».
+                      --
+                      -- A janela da alocação (acima) conserta o mês, e ainda não basta: `allocations`
+                      -- diz quem foi DESIGNADO, não quem prestou serviço. Medido em 29/09, no kit de
+                      -- 08/2026 remontado pelo beat das 07:30:
+                      --   · EULER FELIPE tinha DUAS alocações sobrepostas (Mirante 08/07→25/09 E
+                      --     Laranjeiras 23/07→25/09) e entrava nos DOIS kits. Ninguém trabalha em dois
+                      --     postos ao mesmo tempo: a batida dele em agosto é toda no Laranjeiras.
+                      --   · «Jordan Santos de Jesus», `status = candidato`, alocado ao Villa Dei Fiori
+                      --     19/07→24/09, ganhou 8 documentos no kit do cliente sem nunca ter batido.
+                      --
+                      -- ⭐ A ÂNCORA É A BATIDA NAQUELE POSTO — `gp_clock_punches.posto_id`, gravado no
+                      -- momento do fato. Foi assim que o roster resolveu 60 de 63 pessoas.
+                      --
+                      -- ⚠️ MAS batida sozinha derrubaria documento LEGÍTIMO: quem estava afastado ou de
+                      -- férias não bate, e a folha de ponto que mostra o afastamento É a documentação
+                      -- daquele mês. Medido: dos alocados sem batida em 08/2026, ARYELTON (suspenso) e
+                      -- CINTIA (afastado_inss) têm afastamento SST REGISTRADO — ficam. Só o candidato
+                      -- sai. Por isso a condição é «bateu naquele posto OU tem ausência documentada»,
+                      -- e não «bateu».
+                      AND (CAST(:ref AS date) IS NULL
+                           OR EXISTS (SELECT 1 FROM gp_clock_punches cp
+                                       WHERE cp.employee_id = a.employee_id
+                                         AND cp.posto_id = ANY(:post_ids_txt)
+                                         AND cp.punch_timestamp >= CAST(:ref AS date)
+                                         AND cp.punch_timestamp < (CAST(:ref AS date) + INTERVAL '1 month'))
+                           OR EXISTS (SELECT 1 FROM sst_afastamentos sa
+                                       WHERE sa.employee_id::varchar = a.employee_id::varchar
+                                         AND sa.data_inicio < (CAST(:ref AS date) + INTERVAL '1 month')
+                                         AND coalesce(sa.data_retorno, sa.data_fim_prevista,
+                                                      CAST(:ref AS date)) >= CAST(:ref AS date))
+                           OR EXISTS (SELECT 1 FROM hr_vacation_requests vr
+                                       WHERE vr.employee_id::varchar = a.employee_id::varchar
+                                         AND lower(coalesce(vr.status,'')) IN
+                                             ('aprovada','approved','hr_approved','gozando','concluida')
+                                         AND vr.start_date < (CAST(:ref AS date) + INTERVAL '1 month')
+                                         AND vr.end_date >= CAST(:ref AS date)))
                 """),
                 # date, nunca string: com o CAST o asyncpg passa a exigir o tipo real (§103)
-                {"post_ids": post_ids, "ref": reference_month},
+                {
+                    "post_ids": post_ids,
+                    # `gp_clock_punches.posto_id` é TEXT e `posts.id` é uuid — a mesma lista em dois
+                    # tipos, porque comparar uuid com text estoura no asyncpg.
+                    "post_ids_txt": [str(x) for x in post_ids],
+                    "ref": reference_month,
+                },
             )
             employee_ids = [row[0] for row in alloc_result.all()]
+
+            # 29/09/2026 — A DECISÃO DA PYETRA TAMBÉM ENTRA.
+            #
+            # Quem bateu no mês e NENHUMA batida gravou o posto não tem como ser colocado por
+            # dedução: a alocação diz onde a pessoa está HOJE e as datas dela são ficção (a do
+            # RILEM ao Green Hills diz 01/01 num condomínio que abriu em 01/09). Para esses casos
+            # um humano decide na tela «Definir condomínio de quem ficou sem», e a escolha mora em
+            # `kit_condominio_manual` com nome e data.
+            #
+            # ⭐ Sem ler esta tabela, a decisão dela não chegava ao kit: a conferência mostrava a
+            # pessoa como «a acrescentar» e a montagem noturna nunca a acrescentava. Decisão que
+            # não produz efeito é decisão que a pessoa toma duas vezes.
+            #
+            # Comparação por nome CANONIZADO no SQL (sem acento, sem as palavras de enfeite) porque
+            # há dois vocabulários vivos: `posts.name` usa o longo e `condominios.nome` o curto.
+            if reference_month is not None:
+                try:
+                    man = await self.db.execute(
+                        text("""
+                            SELECT DISTINCT m.employee_id::text
+                              FROM kit_condominio_manual m
+                              JOIN posts po ON po.id = ANY(:post_ids)
+                             WHERE m.competencia = CAST(:ref AS date)
+                               AND regexp_replace(upper(translate(m.condominio,
+                                     'áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ','aaaaeeiooouucAAAAEEIOOOUUC')),
+                                     '(CONDOMINIO|RESIDENCIAL|EDIFICIO|VILLAGE|DA|DE|DO|DOS|DAS|CIDADE| )', '', 'g')
+                                 = regexp_replace(upper(translate(po.name,
+                                     'áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ','aaaaeeiooouucAAAAEEIOOOUUC')),
+                                     '(CONDOMINIO|RESIDENCIAL|EDIFICIO|VILLAGE|DA|DE|DO|DOS|DAS|CIDADE| )', '', 'g')
+                        """),
+                        {"post_ids": post_ids, "ref": reference_month},
+                    )
+                    extras = [r[0] for r in man.all() if r[0] not in employee_ids]
+                    if extras:
+                        employee_ids = employee_ids + extras
+                        logger.info(
+                            "Cliente %s: +%d pessoa(s) por decisão humana em kit_condominio_manual",
+                            client_id, len(extras),
+                        )
+                except Exception as exc:  # noqa: BLE001 — tabela pode não existir em banco novo
+                    # Falha aqui NÃO pode derrubar a montagem: a decisão manual é um acréscimo, e
+                    # kit sem ela é incompleto, não corrompido.
+                    logger.warning("kit_condominio_manual indisponível: %s", str(exc)[:120])
 
             logger.debug(
                 "Cliente %s: %d postos, %d funcionarios alocados",

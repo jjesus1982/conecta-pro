@@ -170,8 +170,81 @@ def main() -> None:
     print(f"OK {len(conds)} condomínio(s) na competência, nenhum que só existe depois dela")
     print(f"OK plano: {r['kits']} kit(s) · {r['pessoas_no_roster']} pessoa(s) · "
           f"{r['a_remover']} a remover · {r['kits_sem_roster']} sem roster")
+    concordancia_montador_conferencia()
     print("TEST oraculo_kits_conferir_tela PASS")
 
+
+def concordancia_montador_conferencia() -> None:
+    """⭐ O MONTADOR NOTURNO E A CONFERÊNCIA DA PYETRA TÊM DE CONCORDAR.
+
+    🔴 29/09/2026. O beat `ged.kit_incremental_diario` roda todo dia às 07:30 e remontava os kits
+    do mês anterior e do corrente. Medido naquela manhã: ele **recolocou** os vínculos que a
+    reconciliação tinha removido de madrugada — inclusive «Jordan Santos de Jesus» (`candidato`,
+    8 documentos no kit de um cliente) e o EULER FELIPE no Mirante, onde não trabalhou.
+
+    ⭐ Reconciliação sem o montador é ESTEIRA: a Pyetra limpa e o beat repõe no dia seguinte.
+
+    As duas fontes foram alinhadas na mesma regra — alocado na competência **E** (bateu naquele
+    posto **OU** tem ausência documentada) **OU** decisão humana em `kit_condominio_manual`. Este
+    oráculo trava a concordância, não a implementação: qualquer um dos dois lados que mudar de
+    critério sozinho fica vermelho aqui.
+
+    ⚠️ Três armadilhas medidas no caminho, todas registradas porque voltariam calado:
+      · **duas tabelas de alocação** discordam — `allocations` (93 pessoas) e `employee_alocacoes`
+        (65). Para o FRANCISCO RAMON em 08/2026 a primeira diz Laranjeiras e a segunda Villa dos
+        Pássaros; as batidas dele concordam com a primeira. A fonte é `allocations`.
+      · **dois vocabulários** para o mesmo prédio (`posts.name` longo × `condominios.nome` curto):
+        sem canonizar, o mesmo condomínio vira dois no roster.
+      · **ausência documentada não pode ser excluída**: quem está afastado ou de férias não bate, e
+        a folha que mostra a ausência É a documentação do mês.
+    """
+    import asyncio
+    from datetime import date as _date
+
+    from sqlalchemy import text as _t
+
+    from core.database import get_db
+    from modules.people_management.ged.services.kit_builder_service import KitBuilderService
+
+    comp = _date(2026, 8, 1)
+    with get_sync_db() as db:
+        por_cond, nomes, _ = krs.roster(db, comp)
+    esperado = {krs.canon(c): v for c, v in por_cond.items()}
+
+    async def _comparar() -> list[str]:
+        gen = get_db()
+        db = await gen.__anext__()
+        try:
+            svc = KitBuilderService(db)
+            rows = (await db.execute(_t("SELECT id::text, name FROM ged_clients ORDER BY name"))).all()
+            problemas: list[str] = []
+            for cid, nome in rows:
+                if any(t in nome.upper() for t in krs.NAO_CLIENTE):
+                    continue
+                ids = set(await svc.get_employees_for_client(cid, reference_month=comp))
+                esp = esperado.get(krs.canon(nome)) or set()
+                if not ids and not esp:
+                    continue
+                so_montador, so_roster = ids - esp, esp - ids
+                if so_montador:
+                    problemas.append(
+                        f"{nome}: o MONTADOR põe {len(so_montador)} pessoa(s) que a conferência "
+                        f"tiraria — a Pyetra limpa e o beat repõe amanhã"
+                    )
+                if so_roster:
+                    problemas.append(
+                        f"{nome}: a CONFERÊNCIA espera {len(so_roster)} pessoa(s) "
+                        f"({[nomes.get(x, '?')[:18] for x in list(so_roster)[:3]]}) que o montador "
+                        "não coloca — documento que nunca chega ao kit do cliente"
+                    )
+            return problemas
+        finally:
+            await gen.aclose()
+
+    problemas = asyncio.run(_comparar())
+    assert not problemas, "montador × conferência divergem:\n  " + "\n  ".join(problemas)
+    print(f"OK montador e conferência concordam em {len(esperado)} condomínio(s) — reconciliação "
+          f"não é mais esteira")
 
 if __name__ == "__main__":
     main()
