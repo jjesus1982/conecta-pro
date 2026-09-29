@@ -656,7 +656,7 @@ async def build(db) -> dict:
         "title": "Conferir kits do mês",
         "sub": (
             f"Compara cada kit com quem realmente trabalhou naquele condomínio na competência. "
-            f"O padrão é **{_ant:%m/%Y}** e **Ensaio** — em ensaio NADA é alterado, só listado, "
+            f"O padrão é {_ant:%m/%Y} e «Ensaio» — em ensaio NADA é alterado, só listado, "
             "com o motivo de cada linha. Remove apenas o VÍNCULO pessoa×kit: o PDF continua no "
             "disco e o documento continua existindo para a pessoa."
         ),
@@ -703,7 +703,7 @@ async def build(db) -> dict:
         "sub": (
             "Use quando «Conferir kits do mês» listar alguém como «sem condomínio». Acontece "
             "quando as batidas da pessoa no mês não gravaram o posto — então o sistema não tem "
-            "como saber, e **pergunta em vez de chutar**. Fica registrado com o seu nome."
+            "como saber, e pergunta em vez de chutar. Fica registrado com o seu nome."
         ),
         "cta": "Definir",
         "type": "form",
@@ -808,7 +808,7 @@ async def build(db) -> dict:
     out["kits-pdfs-mes"] = {
         "title": "Gerar PDFs dos kits",
         "sub": (
-            f"Gera os PDFs de todos os kits da competência escolhida. O padrão é **{_ant:%m/%Y}** "
+            f"Gera os PDFs de todos os kits da competência escolhida. O padrão é {_ant:%m/%Y} "
             "(mês anterior), que é o kit entregue agora. O campo é o PRIMEIRO DIA do mês — o "
             "padrão da própria rota está preso em março/2026, então o campo não é opcional na "
             "prática: em branco, ela geraria março."
@@ -2094,12 +2094,13 @@ async def rd_kits_conferir(
     Guarda em `ged_kit_documents_removidos_<data>_tela` antes de remover e confere por LEITURA
     POSTERIOR: «DELETE n» do driver não é prova, e isso já custou caro nesta casa.
     """
-    import uuid as _uuid
-
     from starlette.concurrency import run_in_threadpool
 
     from core.database.session import get_sync_db
-    from modules.people_management.ged.services.kit_roster_service import plano_reconciliacao
+    from modules.people_management.ged.services.kit_roster_service import (
+        aplicar_reconciliacao,
+        plano_reconciliacao,
+    )
 
     if (getattr(current_user, "role", "") or "") not in ("admin", "operator"):
         raise HTTPException(status_code=403, detail="Acesso restrito à administração e ao DP.")
@@ -2113,72 +2114,16 @@ async def rd_kits_conferir(
     )
 
     def _trabalho() -> dict:
+        # ⭐ O ato destrutivo mora no SERVIÇO, não aqui. Antes havia um bloco de apagar nesta
+        # ação e outro no script do terminal — duas cópias de um DELETE divergem na primeira
+        # correção, e a que fica atrás é a que apaga errado.
         with get_sync_db() as sdb:
-            plano = plano_reconciliacao(sdb, comp)
             if acao != "aplicar":
-                return plano
-            alvo = [(x["kit_id"], x["employee_id"]) for x in plano["linhas"] if x["employee_id"]]
-            if not alvo:
-                plano["aplicado"] = 0
-                return plano
-            bkp = f"ged_kit_documents_removidos_{date.today():%Y%m%d}_tela"
-            par = {"k": [a[0] for a in alvo], "e": [a[1] for a in alvo]}
-            onde = (
-                " WHERE (kit_id::text, employee_id::text) IN "
-                "  (SELECT * FROM unnest(CAST(:k AS text[]), CAST(:e AS text[])))"
-            )
-            n_antes = sdb.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
-            sdb.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS {bkp} AS "  # noqa: S608 — nome derivado de data
-                    "SELECT *, now() AS removido_em, ''::text AS removido_por "
-                    "  FROM ged_kit_documents WHERE false"
-                )
-            )
-            sdb.execute(
-                text(f"INSERT INTO {bkp} SELECT *, now(), :q FROM ged_kit_documents {onde}"),  # noqa: S608
-                {**par, "q": quem},
-            )
-            guardadas = sdb.execute(text(f"SELECT count(*) FROM {bkp}")).scalar() or 0  # noqa: S608
-            if guardadas < n_antes:
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        f"ABORTADO antes de remover: o backup guardou {guardadas} e eu ia apagar "
-                        f"{n_antes}. Remoção sem cópia de volta não acontece."
-                    ),
-                )
-            sdb.execute(text(f"DELETE FROM ged_kit_documents {onde}"), par)  # noqa: S608
-            sdb.execute(
-                text(
-                    "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
-                    "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module) "
-                    "VALUES (:id, now(), 'kit.vinculos_removidos', 'ged_kit_documents', :ent, :d, "
-                    "  'operacional.documentos', '00000000-0000-0000-0000-000000000000', :q, 'dp', 'ged')"
-                ),
-                {
-                    "id": str(_uuid.uuid4()),
-                    "ent": f"{comp:%Y-%m}",
-                    "q": quem,
-                    "d": (
-                        f"{len(alvo)} vínculo(s) pessoa×kit e {n_antes} linha(s) de documento "
-                        f"removidos da competência {comp:%m/%Y} pela tela «Conferir kits do mês». "
-                        f"Motivo por linha: a pessoa trabalhou em outro condomínio no mês. "
-                        f"Reversível em {bkp}. PDFs no disco intactos."
-                    ),
-                },
-            )
-            sdb.commit()
-            # PROVA POR LEITURA POSTERIOR — depois do commit, não antes.
-            sobrou = sdb.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
-            if sobrou:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"A remoção não se confirmou na leitura: restaram {sobrou} linha(s).",
-                )
-            plano["aplicado"] = n_antes
-            plano["backup"] = bkp
-            return plano
+                return plano_reconciliacao(sdb, comp)
+            try:
+                return aplicar_reconciliacao(sdb, comp, quem)
+            except RuntimeError as exc:  # aborto do serviço (backup incompleto, leitura não confere)
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     plano = await run_in_threadpool(_trabalho)
     r = plano["resumo"]
@@ -2217,7 +2162,7 @@ async def rd_kits_conferir(
         f"{r['pessoas_no_roster']} pessoa(s) no roster · "
         + (
             (
-                f"**{aplicado} linha(s) de documento removida(s)**, reversível em "
+                f"{aplicado} linha(s) de documento removida(s), reversível em "
                 f"`{plano.get('backup')}`. "
                 if aplicado
                 # Zero removido não ganha frase de backup: «reversível em None» é ruído que
@@ -2225,13 +2170,13 @@ async def rd_kits_conferir(
                 # «Já estão de acordo» seria contradição quando há pendência: a frase e o
                 # aviso de pendência sairiam na MESMA mensagem dizendo coisas opostas.
                 else (
-                    "**Nada a remover** — nenhum vínculo indevido entre os que o sistema sabe julgar. "
+                    "Nada a remover — nenhum vínculo indevido entre os que o sistema sabe julgar. "
                     if r["sem_condominio"]
-                    else "**Nada a remover** — os kits estão de acordo com quem trabalhou. "
+                    else "Nada a remover — os kits estão de acordo com quem trabalhou. "
                 )
             )
             if aplicado is not None
-            else f"**ENSAIO** — nada foi alterado. {r['a_remover']} vínculo(s) a remover. "
+            else f"ENSAIO — nada foi alterado. {r['a_remover']} vínculo(s) a remover. "
         )
         + (f"{r['kits_sem_roster']} kit(s) sem roster (não tocados). " if r["kits_sem_roster"] else "")
         + (f"⚠️ {r['sem_condominio']} pessoa(s) sem condomínio." if r["sem_condominio"] else "Ninguém sem condomínio.")

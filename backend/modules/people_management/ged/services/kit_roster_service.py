@@ -302,3 +302,84 @@ def plano_reconciliacao(db, competencia: date) -> dict:
             "sem_condominio": len(faltando),
         },
     }
+
+
+def aplicar_reconciliacao(db, competencia: date, quem: str) -> dict:
+    """Remove os vínculos indevidos do plano. UMA fonte para a tela e para o terminal.
+
+    ⭐ 29/09/2026 — nasceu para acabar com duas cópias do MESMO ato destrutivo: a ação da tela
+    tinha um bloco de apagar e `scripts/qa/reconciliar_kit_agosto.py` tinha outro. Duas cópias de
+    um `DELETE` divergem na primeira correção, e a que fica atrás é a que apaga errado.
+
+    Remove apenas o VÍNCULO pessoa×kit em `ged_kit_documents`. O PDF no disco não é tocado e o
+    documento continua existindo para a pessoa: o que estava errado era ele estar no kit de
+    OUTRO condomínio (medido: uma pessoa aparecia em TRÊS kits, e dois clientes recebiam a folha
+    de pagamento de um estranho).
+
+    Nunca remove quem está apenas SEM RESOLUÇÃO — `plano_reconciliacao` já marca essas linhas
+    como `pendente` e as tira do lote. Ignorância do sistema não vira ato sobre documento.
+
+    Devolve o plano com `aplicado` (linhas removidas) e `backup` (tabela de volta).
+    """
+    import uuid as _uuid
+
+    plano = plano_reconciliacao(db, competencia)
+    alvo = [(x["kit_id"], x["employee_id"]) for x in plano["linhas"] if x.get("tipo") == "remover"]
+    if not alvo:
+        plano["aplicado"] = 0
+        plano["backup"] = None
+        return plano
+
+    bkp = f"ged_kit_documents_removidos_{date.today():%Y%m%d}_recon"
+    par = {"k": [a[0] for a in alvo], "e": [a[1] for a in alvo]}
+    onde = (
+        " WHERE (kit_id::text, employee_id::text) IN "
+        "  (SELECT * FROM unnest(CAST(:k AS text[]), CAST(:e AS text[])))"
+    )
+    n_antes = db.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
+    db.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS {bkp} AS "  # noqa: S608 — nome derivado da data
+            "SELECT *, now() AS removido_em, ''::text AS removido_por "
+            "  FROM ged_kit_documents WHERE false"
+        )
+    )
+    db.execute(
+        text(f"INSERT INTO {bkp} SELECT *, now(), :q FROM ged_kit_documents {onde}"),  # noqa: S608
+        {**par, "q": quem},
+    )
+    guardadas = db.execute(text(f"SELECT count(*) FROM {bkp}")).scalar() or 0  # noqa: S608
+    if guardadas < n_antes:
+        # ABORTA antes de apagar. Backup menor que o alvo significa que a cópia não pegou tudo,
+        # e remoção sem cópia de volta não acontece nesta casa.
+        raise RuntimeError(
+            f"ABORTADO antes de remover: o backup guardou {guardadas} e eu ia apagar {n_antes}."
+        )
+    db.execute(text(f"DELETE FROM ged_kit_documents {onde}"), par)  # noqa: S608
+    db.execute(
+        text(
+            "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
+            "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module) "
+            "VALUES (:id, now(), 'kit.vinculos_removidos', 'ged_kit_documents', :ent, :d, "
+            "  'people_management.ged', '00000000-0000-0000-0000-000000000000', :q, 'dp', 'ged')"
+        ),
+        {
+            "id": str(_uuid.uuid4()),
+            "ent": f"{competencia:%Y-%m}",
+            "q": quem,
+            "d": (
+                f"{len(alvo)} vínculo(s) pessoa×kit e {n_antes} linha(s) de documento removidos da "
+                f"competência {competencia:%m/%Y}. Motivo por linha: a pessoa trabalhou em outro "
+                f"condomínio no mês. Reversível em {bkp}. PDFs no disco intactos."
+            ),
+        },
+    )
+    db.commit()
+
+    # PROVA POR LEITURA POSTERIOR — depois do commit, nunca pela linha «DELETE n».
+    sobrou = db.execute(text(f"SELECT count(*) FROM ged_kit_documents {onde}"), par).scalar() or 0  # noqa: S608
+    if sobrou:
+        raise RuntimeError(f"A remoção não se confirmou na leitura: restaram {sobrou} linha(s).")
+    plano["aplicado"] = n_antes
+    plano["backup"] = bkp
+    return plano

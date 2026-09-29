@@ -3,8 +3,30 @@ import path from 'path';
 
 const authFile = path.join(__dirname, '.auth/user.json');
 
+/**
+ * 🔴 29/09/2026 — a credencial vem do AMBIENTE, não do repositório.
+ *
+ * Este arquivo usava `admin@conectapro.com.br` / `admin123` escritos no código, e a suíte e2e
+ * inteira estava quebrada por isso: **essa conta está DESATIVADA**. O teste falhava no login e
+ * os 7 testes seguintes nem rodavam — lente de navegador cega há meses, sem ninguém saber.
+ *
+ * Duas coisas erradas numa: senha fixa em arquivo versionado e teste que não roda. `ERP_USER` e
+ * `ERP_PASS` já existem no `.env` da raiz e são o que o resto da casa usa.
+ *
+ * Sem as variáveis, o teste FALHA DIZENDO O QUE FAZER — em vez de tentar uma conta morta e
+ * deixar o motivo escondido atrás de «isAuthenticated: false».
+ */
+const USUARIO = process.env.ERP_USER || '';
+const SENHA = process.env.ERP_PASS || '';
+
 setup('autenticar e salvar estado', async ({ page, context }) => {
-  console.log('Iniciando autenticação...');
+  if (!USUARIO || !SENHA) {
+    throw new Error(
+      'ERP_USER/ERP_PASS ausentes. Rode com: set -a; . /opt/conecta-pro/.env; set +a; ' +
+        'npx playwright test — a suíte não usa mais credencial escrita no repositório.',
+    );
+  }
+  console.log(`Iniciando autenticação como ${USUARIO}...`);
 
   // Navega para login
   await page.goto('/login', { waitUntil: 'load' });
@@ -27,8 +49,8 @@ setup('autenticar e salvar estado', async ({ page, context }) => {
     console.log('Preenchendo formulário de login...');
 
     // Preenche credenciais
-    await emailInput.fill('admin@conectapro.com.br');
-    await passwordInput.fill('admin123');
+    await emailInput.fill(USUARIO);
+    await passwordInput.fill(SENHA);
 
     console.log('Enviando formulário...');
 
@@ -58,12 +80,15 @@ setup('autenticar e salvar estado', async ({ page, context }) => {
   if (currentUrl1.includes('/login')) {
     console.log('Ainda no login, tentando via API...');
 
-    await page.evaluate(async () => {
+    // As constantes são do NODE; dentro de `evaluate` o contexto é o NAVEGADOR e elas não
+    // existem lá. Passar por argumento é a única forma — foi um defeito que eu introduzi ao
+    // trocar o literal pela variável.
+    await page.evaluate(async ({ u, p }) => {
       try {
         const resp = await fetch('http://localhost:8080/api/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'username=admin@conectapro.com.br&password=admin123',
+          body: `username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}`,
         });
 
         if (resp.ok) {
@@ -77,7 +102,7 @@ setup('autenticar e salvar estado', async ({ page, context }) => {
       } catch (error) {
         console.error('Erro ao fazer login via API:', error);
       }
-    });
+    }, { u: USUARIO, p: SENHA });
   }
 
   // Mocka endpoint /auth/me antes de navegar
@@ -88,7 +113,7 @@ setup('autenticar e salvar estado', async ({ page, context }) => {
         contentType: 'application/json',
         body: JSON.stringify({
           id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-          email: 'admin@conectapro.com.br',
+          email: USUARIO,
           name: 'Admin',
           role: 'admin',
           is_active: true,
@@ -137,7 +162,7 @@ setup('autenticar e salvar estado', async ({ page, context }) => {
         'user',
         JSON.stringify({
           id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-          email: 'admin@conectapro.com.br',
+          email: USUARIO,
           name: 'Admin',
           role: 'admin',
           is_active: true,

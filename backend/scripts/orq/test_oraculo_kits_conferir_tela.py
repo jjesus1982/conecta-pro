@@ -68,12 +68,20 @@ def main() -> None:
     assert 'or \'ensaio\'' in corpo or 'or "ensaio"' in corpo, (
         "a ação perdeu o default «ensaio»: quem chamar a rota sem dizer a ação passaria a remover"
     )
-    assert "gp_audit_logs" in corpo and "CREATE TABLE IF NOT EXISTS" in corpo, (
-        "a ação perdeu a trilha ou o backup — remoção de vínculo de documento trabalhista sem "
-        "cópia de volta e sem rastro não acontece nesta casa"
+    # ⭐ A GARANTIA, NÃO O LUGAR. A primeira versão desta asserção exigia trilha e backup no
+    # corpo da AÇÃO — e ficou vermelha quando o refactor de 29/09 moveu o ato destrutivo para o
+    # serviço, que é onde ele deve estar (a ação e o script do terminal compartilham o mesmo
+    # DELETE agora). Oráculo que fixa ONDE o código mora reprova refactor correto.
+    #
+    # O que importa afirmar: (a) a ação DELEGA em vez de ter DELETE próprio, e (b) quem executa
+    # o ato tem backup, trilha e leitura posterior.
+    assert "DELETE FROM ged_kit_documents" not in src, (
+        "voltou a existir um DELETE na camada de tela. O ato destrutivo tem UM dono — duas "
+        "cópias de um DELETE divergem na primeira correção, e a que fica atrás apaga errado"
     )
-    assert "não se confirmou na leitura" in corpo, (
-        "a ação deixou de conferir por LEITURA POSTERIOR o que apagou; «DELETE n» não é prova"
+    assert "aplicar_reconciliacao" in corpo, (
+        "a ação não delega mais ao serviço: ou perdeu a capacidade de aplicar, ou voltou a ter "
+        "regra própria"
     )
 
     # 3 — a ação de definir RECUSA condomínio fora da competência.
@@ -96,6 +104,16 @@ def main() -> None:
     # 4 — ⭐ A REGRA QUE PROTEGE O DOCUMENTO: pendente não é removível.
     with open(krs.__file__.replace(".pyc", ".py"), encoding="utf-8") as fh:
         srv = fh.read()
+    for marca, porque in (
+        ("CREATE TABLE IF NOT EXISTS", "backup antes de remover"),
+        ("gp_audit_logs", "trilha do ato"),
+        ("não se confirmou na leitura", "prova por leitura posterior"),
+        ("ABORTADO antes de remover", "aborto quando o backup vem menor que o alvo"),
+    ):
+        assert marca in srv, (
+            f"o serviço perdeu {porque} — remoção de vínculo de documento trabalhista sem isso "
+            "não acontece nesta casa"
+        )
     assert 'ln["tipo"] = "pendente"' in srv and 'ln["employee_id"] = None' in srv, (
         "quem está apenas SEM RESOLUÇÃO voltou a entrar no lote de remoção. O sistema apagaria "
         "vínculo de documento por NÃO SABER onde a pessoa trabalhou — ignorância nossa virando "
@@ -125,7 +143,8 @@ def main() -> None:
         )
 
     print(f"OK as 2 rotas existem · ensaio é o padrão no builder e na ação")
-    print(f"OK trilha, backup e leitura posterior presentes na remoção")
+    print("OK a tela DELEGA: nenhum DELETE na camada de tela, o ato tem um dono")
+    print("OK o serviço tem backup, trilha, aborto e leitura posterior")
     print(f"OK definir recusa condomínio fora da competência · ON CONFLICT corrige em vez de duplicar")
     print(f"OK pendente NÃO é removível ({len(pend)} pendente(s), {len(removiveis)} removível(is), 0 em comum)")
     print(f"OK {len(conds)} condomínio(s) na competência, nenhum que só existe depois dela")
