@@ -38,8 +38,30 @@ from datetime import date, datetime, time, timedelta
 
 ESTADOS = ("ok", "atendido_com_atraso", "atendido_posto_incorreto", "atendido_fora_de_escala", "descoberto")
 
+#: ⭐ 29/09/2026 — ESTE ORÁCULO OBSERVAVA A COISA ERRADA, e reprovou uma tela boa.
+#:
+#: A verdade do horário não é `shifts` cru: quando há linha em `ponto_horario_vigencia` na data,
+#: ela é o horário que vale — escrita à mão, com AUTOR e MOTIVO, porque o cadastro estava errado.
+#: A CELIANE tem cadastro 08:00 e entra 09:00. Medindo pelo cru, este oráculo dizia «as fontes
+#: dizem atendido_com_atraso» sobre uma pessoa que chega pontual, e acusava o mapa de divergir.
+#:
+#: ⚠️ Não é copiar a query do código: é expressar a REGRA do domínio de forma independente. A
+#: régua mudou porque estava errada — não para o teste passar.
 _SQL_TURNO = """
-SELECT sh.shift_date, sh.planned_start_time, sh.planned_end_time, sh.actual_start_time, sh.status,
+SELECT sh.shift_date,
+       coalesce((SELECT hv.entrada FROM ponto_horario_vigencia hv
+                  WHERE hv.employee_id = sh.employee_id
+                    AND hv.vigencia_inicio <= sh.shift_date
+                    AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date)
+                  ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                sh.planned_start_time) AS planned_start_time,
+       coalesce((SELECT hv.saida FROM ponto_horario_vigencia hv
+                  WHERE hv.employee_id = sh.employee_id
+                    AND hv.vigencia_inicio <= sh.shift_date
+                    AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date)
+                  ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                sh.planned_end_time) AS planned_end_time,
+       sh.actual_start_time, sh.status,
        sh.post_id::text AS post_id, sh.employee_id::text AS employee_id
   FROM shifts sh WHERE sh.id::text = :sid
 """

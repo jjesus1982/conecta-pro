@@ -66,9 +66,44 @@ def nao_ausente_em(expr_data: str) -> str:
     return SQL_NAO_AUSENTE_HOJE.replace(_HOJE_MANAUS, f"({expr_data})")
 
 
+#: ⭐ 29/09/2026 — O HORÁRIO EFETIVO DO TURNO, e é daqui que a correção alcança a folha.
+#:
+#: `ponto_horario_vigencia` guarda o horário corrigido à mão quando o cadastro está errado. Até
+#: hoje ela era lida em DOIS lugares do backend inteiro, e este — o eixo que **classifica** quem
+#: chegou atrasado — não era um deles. Medido: 14 arquivos calculam atraso a partir de
+#: `planned_start_time` e apenas 3 liam a vigência.
+#:
+#: 🔴 O CUSTO, com nome: a CELIANE tem cadastro 08:00 e entra 09:00. Da vigência em diante ela é
+#: **pontual ao minuto** — 0,99 · 0,20 · **−0,12** (adiantada) · 0,17 minutos — e o cálculo pelo
+#: cadastro vê **~60 minutos de atraso todo dia**. Esse número não é só acusação: ele desce por
+#: `classificar` → `atraso_falta_conferencia` e vira `minutos_alem`, que é o que sustenta
+#: DESCONTO em folha.
+#:
+#: ⭐ Corrige-se AQUI, e não em cada consumidor, porque este módulo é o eixo: sete consumidores
+#: (justificativa_batida, atraso_falta_conferencia, ausencias, config_ponto, os dois builders do
+#: redesign, colaboradores_export) herdam sozinhos. O alias mantém o nome `planned_start_time`,
+#: então nenhum deles precisa mudar uma linha.
+#:
+#: ⚠️ A JANELA é respeitada (`vigencia_inicio`/`vigencia_fim`): horário corrigido em setembro NÃO
+#: reescreve o atraso de um turno de março — mês fechado não se mexe.
+#: ⚠️ Quem não tem vigência não muda de comportamento. O `coalesce` cai no cadastro.
+_VIG = (
+    "(SELECT hv.{campo} FROM ponto_horario_vigencia hv "
+    "  WHERE hv.employee_id = sh.employee_id "
+    "    AND hv.vigencia_inicio <= sh.shift_date "
+    "    AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date) "
+    "  ORDER BY hv.vigencia_inicio DESC LIMIT 1)"
+)
+_ENTRADA_EFETIVA = f"coalesce({_VIG.format(campo='entrada')}, sh.planned_start_time)"
+_SAIDA_EFETIVA = f"coalesce({_VIG.format(campo='saida')}, sh.planned_end_time)"
+
 _SQL_TURNOS = f"""
-SELECT sh.id::text AS shift_id, sh.shift_date, sh.planned_start_time, sh.planned_end_time,
+SELECT sh.id::text AS shift_id, sh.shift_date,
+       {_ENTRADA_EFETIVA} AS planned_start_time,
+       {_SAIDA_EFETIVA}   AS planned_end_time,
        sh.actual_start_time, sh.status AS shift_status,
+       -- o cadastro CRU fica disponível para quem precisar mostrar «cadastro × corrigido»
+       sh.planned_start_time AS planned_start_time_cadastro,
        sh.post_id::text AS post_id, p.name AS posto, coalesce(c.name, '—') AS cliente,
        sh.employee_id::text AS employee_id, e.nome,
        e.cargo AS funcao, e.escala_padrao AS escala,
@@ -79,13 +114,14 @@ SELECT sh.id::text AS shift_id, sh.shift_date, sh.planned_start_time, sh.planned
   LEFT JOIN clients c ON c.id = p.client_id
  WHERE sh.shift_date BETWEEN CAST(:de AS date) AND CAST(:ate AS date)
    AND {_SHIFT_ESPERADO} AND {COORTE} {{nao_ausente}}
- ORDER BY p.name, sh.shift_date, sh.planned_start_time, e.nome
+ ORDER BY p.name, sh.shift_date, planned_start_time, e.nome
 """
 
 #: Turno lançado para quem a régua NÃO cobra no dia — não vira "descoberto", mas o supervisor
 #: precisa saber que aquele turno está sem gente cobrada (é buraco de escala, não falta).
 _SQL_TURNOS_EXCLUIDOS = f"""
-SELECT sh.id::text AS shift_id, sh.shift_date, sh.planned_start_time, p.name AS posto,
+SELECT sh.id::text AS shift_id, sh.shift_date,
+       {_ENTRADA_EFETIVA} AS planned_start_time, p.name AS posto,
        sh.employee_id::text AS employee_id, e.nome
   FROM shifts sh JOIN employees e ON e.id = sh.employee_id JOIN posts p ON p.id = sh.post_id
  WHERE sh.shift_date BETWEEN CAST(:de AS date) AND CAST(:ate AS date)

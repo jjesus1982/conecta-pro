@@ -97,8 +97,27 @@ WITH postos_geo AS (
          coalesce(geofence_raio_metros, 150)::double precision AS raio
     FROM posts WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL),
 turnos AS (
-  SELECT sh.id::text AS sid, sh.shift_date AS d, sh.planned_start_time AS ini,
-         sh.planned_end_time AS fim, sh.actual_start_time AS ast,
+  -- ⭐ 29/09/2026 — ESTE ORÁCULO OBSERVAVA A COISA ERRADA, e por isso reprovou uma tela boa.
+  -- A verdade do horário não é `shifts` cru: quando existe linha em `ponto_horario_vigencia` na
+  -- data, ela é o horário que vale — foi escrita à mão, com AUTOR e MOTIVO, porque o cadastro
+  -- estava errado. A CELIANE tem cadastro 08:00 e entra 09:00; medindo pelo cru, este oráculo
+  -- via 241 minutos de atraso que não existem (4 dias × 60) e acusava a conferência de errar.
+  -- ⚠️ Não é copiar a query do código: é expressar a REGRA do domínio (o corrigido manda) de
+  -- forma independente. A régua mudou porque estava errada, não para o teste passar.
+  SELECT sh.id::text AS sid, sh.shift_date AS d,
+         coalesce((SELECT hv.entrada FROM ponto_horario_vigencia hv
+                    WHERE hv.employee_id = sh.employee_id
+                      AND hv.vigencia_inicio <= sh.shift_date
+                      AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date)
+                    ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                  sh.planned_start_time) AS ini,
+         coalesce((SELECT hv.saida FROM ponto_horario_vigencia hv
+                    WHERE hv.employee_id = sh.employee_id
+                      AND hv.vigencia_inicio <= sh.shift_date
+                      AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date)
+                    ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                  sh.planned_end_time) AS fim,
+         sh.actual_start_time AS ast,
          sh.post_id::text AS pid, sh.employee_id::text AS eid, e.nome
     FROM shifts sh JOIN employees e ON e.id = sh.employee_id JOIN posts p ON p.id = sh.post_id
    WHERE sh.shift_date BETWEEN CAST(:de AS date) AND CAST(:ate AS date)
