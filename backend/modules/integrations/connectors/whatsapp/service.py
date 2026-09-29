@@ -20,6 +20,27 @@ logger = logging.getLogger(__name__)
 #: Falha de infra não pode bloquear envio; número morto tem de bloquear.
 NUMERO_NAO_EXISTE = "__nao_existe__"
 
+
+def normalize_phone(phone: str | None) -> str | None:
+    """Normaliza para os dígitos DDD+número (remove '+' e DDI 55). Limita a 20 chars
+    (`cwi_message_log.phone_canonical` / `leads.phone` são varchar(20)) — phone hostil não quebra.
+
+    ⭐ Mora AQUI, e não no controller, por causa da direção da dependência: o controller já
+    importa este módulo, então quem envia pode canonizar sem importar um controller de FastAPI
+    dentro do caminho de envio — num worker de celery isso executaria código de módulo que não
+    tem nada a ver com mandar mensagem. O controller usa esta mesma função.
+
+    ⚠️ Não duplicar: dois normalizadores divergem na primeira mudança e o mesmo telefone passa
+    a existir em dois formatos no log, o que quebra qualquer contagem por pessoa.
+    """
+    if not phone:
+        return None
+    digits = "".join(c for c in str(phone) if c.isdigit())
+    if digits.startswith("55") and len(digits) > 11:
+        digits = digits[2:]
+    return digits[:20] or None
+
+
 MONTH_NAMES = [
     "Janeiro",
     "Fevereiro",
@@ -179,6 +200,58 @@ class WhatsAppService:
             logger.warning("on-whatsapp resolve falhou para %s (segue com o original): %s", digits, e)
             return None
 
+    async def _registrar_saida(self, phone: str, message: str, conv_id, msg_id) -> None:
+        """Registra em `cwi_message_log` a mensagem que a casa ACABOU de enviar.
+
+        🔴 MEDIDO EM 29/09/2026: o aviso diário de assinatura saiu às 09:00 para dezenas de
+        pessoas e o log de saída guardou **23**. Conferi doze nomes que o monitor mostrou
+        recebendo — TELMA, CELIANE, KELLY, VANDERLICE, NAILSON, PAULO, RUAN, BIANCA, DANIEL,
+        MATHEUS, EDIWILSON, JONILSON — e **doze de doze não tinham linha nenhuma**. Oito
+        minutos depois continuavam 23, então não era atraso: era ausência.
+
+        ⭐ A causa é de família conhecida nesta casa: **o registro estava pendurado no EFEITO,
+        não no ATO.** Quem escrevia o log era o *webhook* (`controller.py`, a partir do eco que
+        o Chatwoot devolve), e não o envio. Eco que não volta = a empresa falou com um
+        funcionário e não tem prova do que disse. Num assunto que é ponto, folha e assinatura,
+        o que a casa afirmou a quem é exatamente o que se precisa poder mostrar depois.
+
+        Agora grava-se no ato. Duas propriedades de propósito:
+
+        1. **Idempotente com o eco.** `chatwoot_message_id` tem UNIQUE, então quando o webhook
+           chegar com a mesma mensagem ele colide e não duplica. Não há dois registros do
+           mesmo fato, e a ordem de chegada deixa de importar.
+        2. **`status='sent'` marca a procedência.** O eco grava status nulo; esta linha nasce
+           'sent'. É o que permite medir depois **quantas mensagens só existem porque este
+           registro passou a ser feito** — sem isso o conserto seria indistinguível do acaso.
+
+        ⚠️ Best-effort de verdade: banco fora do ar não pode calar um envio de WhatsApp. Toda
+        exceção morre aqui, e o retorno de `_send_message` não muda em nada.
+        """
+        try:
+            from sqlalchemy import text  # noqa: PLC0415
+
+            from core.database.session import async_session_factory  # noqa: PLC0415
+
+            async with async_session_factory() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO cwi_message_log "
+                        "  (direction, phone_canonical, chatwoot_conversation_id, "
+                        "   chatwoot_message_id, content, status) "
+                        "VALUES ('out', :fone, :conv, :msg, :txt, 'sent') "
+                        "ON CONFLICT (chatwoot_message_id) DO NOTHING"
+                    ),
+                    {
+                        "fone": normalize_phone(phone),
+                        "conv": int(conv_id) if conv_id else None,
+                        "msg": int(msg_id) if msg_id else None,
+                        "txt": message,
+                    },
+                )
+                await db.commit()
+        except Exception as e:  # noqa: BLE001 — registro nunca bloqueia o envio
+            logger.warning("cwi_message_log: não registrei a saída para %s: %s", phone, e)
+
     async def _send_message(self, phone: str, message: str) -> dict:
         """Envia mensagem via Chatwoot (contato -> conversa -> mensagem)."""
         if not self.enabled:
@@ -233,11 +306,13 @@ class WhatsAppService:
                 )
                 if ms in (200, 201):
                     logger.info("WhatsApp(Chatwoot) enviado para %s", phone)
+                    _msg_id = msg.get("id") if isinstance(msg, dict) else None
+                    await self._registrar_saida(phone, message, conv_id, _msg_id)
                     return {
                         "status": "sent",
                         "phone": phone,
                         "conversation_id": conv_id,
-                        "message_id": msg.get("id") if isinstance(msg, dict) else None,
+                        "message_id": _msg_id,
                     }
                 logger.error("Erro WhatsApp(Chatwoot) %s: %s", ms, msg)
                 return {"status": "error", "code": ms, "data": msg}

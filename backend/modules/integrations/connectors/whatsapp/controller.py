@@ -20,6 +20,7 @@ from core.llm_client import novo_cliente
 from modules.integrations.connectors.whatsapp import agent_service
 from modules.integrations.connectors.whatsapp.service import (
     _read_secret_file,
+    normalize_phone,
     whatsapp_service,
 )
 
@@ -159,15 +160,12 @@ async def send_custom_message(
 # === Webhook de ENTRADA (Chatwoot -> backend) — Fase 2 ===
 
 
-def _normalize_phone(phone: str | None) -> str | None:
-    """Normaliza para os digitos DDD+numero (remove '+' e DDI 55). Limita a 20 chars
-    (cwi_message_log.phone_canonical / leads.phone sao varchar(20)) — phone hostil nao quebra."""
-    if not phone:
-        return None
-    digits = "".join(c for c in str(phone) if c.isdigit())
-    if digits.startswith("55") and len(digits) > 11:
-        digits = digits[2:]
-    return digits[:20] or None
+# ⭐ A canonização de telefone MUDOU DE CASA (29/09/2026): mora em `service.normalize_phone`.
+# O motivo é a direção da dependência — quem ENVIA precisa canonizar para registrar a saída no
+# `cwi_message_log`, e este módulo é um controller de FastAPI: importá-lo de dentro do caminho
+# de envio faria um worker de celery executar código de rota só para mandar um WhatsApp.
+# O alias mantém o nome usado aqui; a implementação é uma só, de propósito.
+_normalize_phone = normalize_phone
 
 
 def _safe_int(v) -> int | None:
