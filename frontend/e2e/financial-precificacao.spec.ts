@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { corpoLoginUrlEncoded } from './_credenciais';
 
 test.describe('Financeiro — Precificação', () => {
   test.use({ storageState: 'e2e/.auth/user.json' });
@@ -113,7 +114,7 @@ test.describe('Backend — Novos endpoints AI', () => {
       // Fallback: fazer login (apenas 1 vez)
       const resp = await request.post('http://localhost:8080/api/v1/auth/login', {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        data: 'username=admin%40conectapro.com.br&password=admin123',
+        data: corpoLoginUrlEncoded(),
       });
       const data = await resp.json();
       sharedToken = data.access_token ?? '';

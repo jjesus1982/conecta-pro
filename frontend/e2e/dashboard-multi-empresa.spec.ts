@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { corpoLoginUrlEncoded } from './_credenciais';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
 const API_URL = 'http://localhost:8080';
@@ -8,7 +9,7 @@ let token: string = '';
 test.beforeAll(async ({ request }) => {
   const res = await request.post(`${API_URL}/api/v1/auth/login`, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    data: 'username=admin%40conectapro.com.br&password=admin123',
+    data: corpoLoginUrlEncoded(),
   });
   const body = await res.json();
   token = body.access_token || '';

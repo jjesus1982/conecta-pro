@@ -7,6 +7,7 @@
  */
 
 import { test, expect } from './fixtures';
+import { corpoLoginUrlEncoded } from './_credenciais';
 
 const API_URL = 'http://localhost:8080';
 
@@ -15,7 +16,7 @@ const API_URL = 'http://localhost:8080';
 async function getToken(request: any): Promise<string> {
   const resp = await request.post(`${API_URL}/api/v1/auth/login`, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    data: 'username=admin%40conectapro.com.br&password=admin123',
+    data: corpoLoginUrlEncoded(),
   });
   const data = await resp.json();
   expect(data.access_token, 'Deve retornar access_token no login').toBeTruthy();

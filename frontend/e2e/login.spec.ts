@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginViaAPI } from './helpers/auth';
+import { SENHA } from './_credenciais';
 
 test.describe('Fluxo de Login - Básico', () => {
   test('exibe pagina de login', async ({ page }) => {
@@ -65,7 +66,7 @@ test.describe('Fluxo de Login - Básico', () => {
 
     await page.goto('/login');
     await page.fill('input[type="email"], input[name="email"]', 'admin@conectaplus.com.br');
-    await page.fill('input[type="password"], input[name="password"]', 'admin123');
+    await page.fill('input[type="password"], input[name="password"]', SENHA);
     await page.click('button[type="submit"]');
     await page.waitForURL('**/dashboard**', { timeout: 10000 }).catch(() => {});
     // Se nao redirecionou, pode ser que as credenciais de teste nao funcionem em E2E

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { SENHA, USUARIO } from './_credenciais';
 
 /**
  * E2E Tests — API Fiscal + Financeiro (Task 1.2 + 2.2)
@@ -31,8 +32,8 @@ let token: string;
 test.beforeAll(async ({ request }) => {
   const loginRes = await request.post(`${API}/api/v1/auth/login`, {
     form: {
-      username: 'admin@conectapro.com.br',
-      password: 'admin123',
+      username: USUARIO,
+      password: SENHA,
     },
   });
   expect(loginRes.ok()).toBeTruthy();

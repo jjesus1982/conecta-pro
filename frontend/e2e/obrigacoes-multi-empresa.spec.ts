@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { corpoLoginUrlEncoded } from './_credenciais';
 
 const BASE = process.env.BASE_URL || 'http://localhost:3001';
 const API = 'http://localhost:8080';
@@ -11,7 +12,7 @@ test.describe('Obrigações Multi-Empresa — API Backend', () => {
   test.beforeAll(async ({ request }) => {
     const res = await request.post(`${API}/api/v1/auth/login`, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      data: 'username=admin%40conectapro.com.br&password=admin123',
+      data: corpoLoginUrlEncoded(),
     });
     const data = await res.json();
     token = data.access_token as string;

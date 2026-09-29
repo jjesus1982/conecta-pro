@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginViaAPI } from '../helpers/auth';
+import { SENHA } from '../_credenciais';
 
 test.describe('Autenticação - Login', () => {
   test.beforeEach(async ({ page }) => {
@@ -50,7 +51,7 @@ test.describe('Autenticação - Login', () => {
 
     // Preenche formulário
     await page.fill('input[type="email"]', 'admin@conectaplus.com.br');
-    await page.fill('input[type="password"]', 'admin123');
+    await page.fill('input[type="password"]', SENHA);
     await page.click('button[type="submit"]');
 
     // Verifica redirecionamento
