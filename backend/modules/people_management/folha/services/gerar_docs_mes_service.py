@@ -21,6 +21,53 @@ logger = logging.getLogger(__name__)
 
 _NS = uuid.uuid5(uuid.NAMESPACE_URL, "coassinatura-patrimonial")
 
+#: Fontes que o espelho CONTA como medição. Espelha `espelho_service.FONTES_MEDIDAS` — o que
+#: sobra é grade de escala, e é justamente isso que queremos como referência no PDF.
+_FONTES_MEDIDAS_SQL = "('mobile','contingencia','facial','biometria','app','relogio')"
+
+
+def _grade_do_mes(sdb, eid: str, mes: int, ano: int) -> dict[str, str]:
+    """`{'2026-08-08': '06:00 18:00'}` — os horários NÃO medidos do mês, por dia.
+
+    🔴 28/09/2026. A folha de ponto passou a imprimir o mês inteiro («2» do Jordan) e o dia sem
+    medição sai rotulado «Sem registro eletrônico», com o horário da escala ao lado como
+    referência. Este é o alimentador desse `grade`.
+
+    ⭐ Sem esta função o parâmetro existiria e ninguém o preencheria — o PDF imprimiria o
+    calendário completo com «—» em todo dia não medido, e o cliente perderia a única pista de
+    que houve cobertura. **Régua que ninguém alimenta é régua desligada**, e foi assim que 909
+    fotos ficaram invisíveis nesta casa.
+
+    Medido em agosto/2026: das 3.420 batidas do mês, 2.030 caem aqui (Tangerino com 65% em hora
+    cheia, `web` com 4 horários distintos para 414 batidas). São a GRADE, não marcação — por
+    isso o PDF as imprime com «ref.» e nunca as soma nas horas.
+
+    Nunca levanta: folha de ponto não pode deixar de sair porque a referência falhou.
+    """
+    from sqlalchemy import text as _t
+
+    try:
+        rows = sdb.execute(
+            _t(
+                "SELECT punch_timestamp::date::text AS d, to_char(punch_timestamp,'HH24:MI') AS h "
+                "  FROM gp_clock_punches "
+                " WHERE employee_id::text = :e "
+                "   AND date_trunc('month', punch_timestamp) = make_date(:a, :m, 1) "
+                f"   AND lower(coalesce(device_type,'')) NOT IN {_FONTES_MEDIDAS_SQL} "
+                " ORDER BY punch_timestamp"
+            ),
+            {"e": str(eid), "a": int(ano), "m": int(mes)},
+        ).all()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("grade de referência do espelho %s %02d/%s: %s", eid, mes, ano, exc)
+        return {}
+    por_dia: dict[str, list[str]] = {}
+    for d, h in rows:
+        por_dia.setdefault(d, []).append(h)
+    # No máximo 6 horários por dia: a folha tem SEIS colunas de período, e referência que
+    # transborda a coluna viraria texto ilegível no documento que alguém assina.
+    return {d: " ".join(hs[:6]) for d, hs in por_dia.items()}
+
 _ROSTER_SQL = """
     SELECT e.id::text, e.nome, e.cpf, e.pis, e.matricula, to_char(e.data_admissao,'YYYY-MM-DD')
     FROM employees e JOIN empresas em ON em.id = e.empresa_id
@@ -90,7 +137,7 @@ def _processar_emp(sdb, eid, nome, cpf, pis, matricula, adm, mes, ano, tipos, co
                 except Exception:  # noqa: BLE001
                     esp = None
             if esp and esp.get("time_sheet_id"):
-                pdf = montar_espelho_ponto_pdf(esp)
+                pdf = montar_espelho_ponto_pdf(esp, grade=_grade_do_mes(sdb, eid, mes, ano))
                 path = f"/app/uploads/espelhos/espelho_{esp['time_sheet_id']}.pdf"
                 with open(path, "wb") as fh:
                     fh.write(pdf)
