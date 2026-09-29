@@ -6,7 +6,13 @@ Só leitura. Nunca fabricar — vazio real = "aguardando dado".
 """
 
 import logging
+from datetime import date
 
+from fastapi import Body, Depends
+from sqlalchemy import text
+
+from core.auth.dependencies import CurrentActiveUser
+from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_gp as _base,
 )
@@ -22,8 +28,16 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 logger = logging.getLogger(__name__)
+_log = logger
 SLUG = "gestao-de-pessoas"
 EXTRA_MENU: list[dict] = [
+    {
+        # ⭐ Ao lado do «Ponto eletrônico» de propósito: a Pyetra procura o período onde já
+        # está olhando ponto. Tela que existe e não se acha é tela que não foi entregue.
+        "id": "ponto-periodo",
+        "label": "Ponto por período",
+        "icon": "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2",
+    },
     {
         "id": "consultor-gestao",
         "label": "Consultor de gestão",
@@ -78,6 +92,39 @@ def _ged_actor(name, tipo):
     return name
 
 
+
+
+# ⭐ RÓTULOS DE BATIDA — DE MÓDULO, e não dentro de `build()` (29/09/2026).
+#
+# Eles moravam dentro de `build()`, e o custo está escrito no próprio arquivo: o comentário de
+# `_corrigir_batida` explica que teve de DUPLICAR os rótulos porque referenciá-los de uma função
+# de módulo dava `NameError` — que o `safe()` engole, deixando a tela antiga no ar sem nada no
+# log. A rota de «Ponto por período» precisa dos mesmos rótulos, e uma terceira cópia seria a
+# terceira a divergir na primeira mudança.
+#
+# ⚠️ A cópia de `_corrigir_batida` continua lá e já diverge («Saída para o almoço» × «Saída p/
+# almoço»). Não a unifiquei aqui: mexer nos rótulos de um modal que escreve em registro de
+# jornada é mudança de comportamento, não de organização. Fica anotado.
+_PUNCH_ST = {
+    "pending": ("Pendente", "warn"),
+    "approved": ("Aprovado", "ok"),
+    "processed": ("Processado", "ok"),
+    "rejected": ("Rejeitado", "bad"),
+    "pending_contingencia": ("Contingência", "warn"),
+}
+_PUNCH_TP = {
+    "entrada": "Entrada",
+    "saida": "Saída",
+    "saída": "Saída",
+    "intervalo": "Intervalo",
+    "retorno": "Retorno",
+    # Os quatro tipos que o app grava de verdade faltavam aqui: a coluna mostrava
+    # "Saida_almoco" cru, com underscore e sem acento, na tela que o DP usa todo dia.
+    "saida_almoco": "Saída p/ almoço",
+    "retorno_almoco": "Volta do almoço",
+    "volta_almoco": "Volta do almoço",
+    "extra": "Extra (fora da sequência)",
+}
 
 
 def _celula_posto(dentro, distancia, posto_nome):
@@ -608,26 +655,7 @@ async def build(db) -> dict:
 
     # Ponto — SOBRESCREVE a base (que aplica AT TIME ZONE 'America/Manaus' sobre timestamp já-local
     # = +4h errado, e status cru 'pending'). punch_timestamp é Manaus-local naive → formato RAW.
-    _PUNCH_ST = {
-        "pending": ("Pendente", "warn"),
-        "approved": ("Aprovado", "ok"),
-        "processed": ("Processado", "ok"),
-        "rejected": ("Rejeitado", "bad"),
-        "pending_contingencia": ("Contingência", "warn"),
-    }
-    _PUNCH_TP = {
-        "entrada": "Entrada",
-        "saida": "Saída",
-        "saída": "Saída",
-        "intervalo": "Intervalo",
-        "retorno": "Retorno",
-        # Os quatro tipos que o app grava de verdade faltavam aqui: a coluna mostrava
-        # "Saida_almoco" cru, com underscore e sem acento, na tela que o DP usa todo dia.
-        "saida_almoco": "Saída p/ almoço",
-        "retorno_almoco": "Volta do almoço",
-        "volta_almoco": "Volta do almoço",
-        "extra": "Extra (fora da sequência)",
-    }
+    # (rótulos promovidos para o módulo — ver o topo do arquivo)
     await safe(
         "ponto",
         tbl(
@@ -668,19 +696,136 @@ async def build(db) -> dict:
                 b(*_PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))),
             ],
             actionsfn=_acoes_batida,
-            # Filtra por posto e por origem — 200 batidas misturadas não se confere.
+            # ⭐ 29/09/2026 — A PYETRA PEDIU SELECIONAR POR FUNCIONÁRIO E POR PERÍODO.
+            #
+            # Havia só `posto` e `origem`. Entram aqui os filtros que a tela CONSEGUE resolver
+            # sozinha, porque o mecanismo de `filtros` do ModuleView é client-side: ele escolhe
+            # entre as linhas JÁ CARREGADAS.
+            #
+            # ⚠️ Por isso o PERÍODO **não** entra nesta lista, e não é esquecimento: esta tela é
+            # `LIMIT 200 ORDER BY punch_timestamp DESC` e as 200 mais recentes não cobrem nem os
+            # últimos quatro dias. Um seletor de data aqui filtraria «dentro das 200» e mostraria
+            # vazio para qualquer mês passado — pior que não ter, porque parece resposta.
+            # O período vive em «Ponto por período», que pergunta ao servidor.
             filtrofn=lambda r: {
                 "posto": r[9] or "(sem posto)",
                 "origem": (r[5] or "—").capitalize(),
+                "colaborador": r[0] or "—",
+                "tipo": _PUNCH_TP.get((r[2] or "").lower(), (r[2] or "—").capitalize()),
+                "status": _PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))[0],
+                # Três estados, não dois: geofence NULO é «não deu para medir» (contingência
+                # digitada não tem GPS) e não pode ser lido como «fora do posto».
+                "no_posto": ("Dentro" if r[7] is True else "Fora" if r[7] is False else "Sem medição"),
             },
         ),
     )
     if out.get("ponto"):
         out["ponto"]["filtros"] = [
+            {"key": "colaborador", "label": "Colaborador", "todos": "Todos"},
             {"key": "posto", "label": "Posto", "todos": "Todos os postos"},
+            {"key": "tipo", "label": "Tipo", "todos": "Todos os tipos"},
+            {"key": "status", "label": "Status", "todos": "Todos"},
+            {"key": "no_posto", "label": "No posto", "todos": "Tanto faz"},
             {"key": "origem", "label": "Origem", "todos": "Todas"},
         ]
         out["ponto"]["filterUnit"] = "batida(s)"
+        out["ponto"]["sub"] = (
+            str(out["ponto"].get("sub") or "")
+            + " · Filtre por colaborador, posto, tipo, status, no posto e origem — os filtros "
+            "valem sobre as 200 batidas mais recentes. Para escolher um PERÍODO por data, use "
+            "«Ponto por período», que consulta o servidor."
+        )
+
+    # ── Ponto por período (29/09/2026) ────────────────────────────────────────────────────
+    #
+    # ⭐ A PYETRA pediu «selecionar o período por data, por funcionário e outros filtros».
+    #
+    # Os filtros de valor (colaborador, posto, tipo, status…) entraram na própria tela `ponto`,
+    # onde o ModuleView os resolve no cliente. O PERÍODO não pode morar lá: aquela tela é
+    # `LIMIT 200` e as 200 batidas mais recentes não cobrem nem quatro dias. Um seletor de data
+    # sobre elas devolveria vazio para qualquer mês passado — e **vazio com cara de resposta é
+    # pior que não ter o campo**, porque ela concluiria que não houve batida.
+    #
+    # Aqui a pergunta vai ao servidor. Mesma tabela, mesmos rótulos da tela `ponto`, para não
+    # existirem dois vocabulários para a mesma coisa.
+    _hoje = date.today()
+    _ini_mes = _hoje.replace(day=1)
+    try:
+        _pessoas = (
+            await db.execute(
+                text(
+                    "SELECT e.id::text, e.nome FROM employees e "
+                    " WHERE lower(coalesce(e.status,'')) NOT IN ('demitido') "
+                    " ORDER BY e.nome"
+                )
+            )
+        ).all()
+        _postos = (
+            await db.execute(text("SELECT DISTINCT posto_nome FROM gp_clock_punches "
+                                  " WHERE posto_nome IS NOT NULL AND posto_nome <> '' ORDER BY 1"))
+        ).all()
+    except Exception as exc:  # noqa: BLE001 — a tela não pode sumir por causa das opções
+        _log.warning("ponto-periodo: opções indisponíveis (%s) — segue com listas vazias", exc)
+        _pessoas, _postos = [], []
+
+    out["ponto-periodo"] = {
+        "title": "Ponto por período",
+        "sub": (
+            "Escolha o intervalo de datas e, se quiser, o colaborador. Consulta o servidor — "
+            "não fica limitada às 200 batidas da tela «Ponto eletrônico». Deixe um filtro vazio "
+            "para não filtrar por ele. É consulta: não altera nada."
+        ),
+        "cta": "Buscar",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/redesign/action/ponto-periodo",
+            "okMsg": "Busca concluída — veja a tabela.",
+            "showResult": True,
+        },
+        "fields": [
+            {"key": "de", "label": "De*", "type": "date", "value": _ini_mes.isoformat()},
+            {"key": "ate", "label": "Até*", "type": "date", "value": _hoje.isoformat()},
+            {
+                "key": "employee_id",
+                "label": "Colaborador",
+                "type": "select",
+                "span": "span 2",
+                "options": [{"v": "", "t": "Todos"}]
+                + [{"v": str(p[0]), "t": p[1]} for p in _pessoas],
+            },
+            {
+                "key": "posto",
+                "label": "Posto",
+                "type": "select",
+                "options": [{"v": "", "t": "Todos"}] + [{"v": p[0], "t": p[0]} for p in _postos],
+            },
+            {
+                "key": "tipo",
+                "label": "Tipo",
+                "type": "select",
+                "options": [{"v": "", "t": "Todos"}]
+                + [{"v": k, "t": v} for k, v in sorted(_PUNCH_TP.items(), key=lambda x: x[1])],
+            },
+            {
+                "key": "status",
+                "label": "Status",
+                "type": "select",
+                "options": [{"v": "", "t": "Todos"}]
+                + [{"v": k, "t": v[0]} for k, v in sorted(_PUNCH_ST.items(), key=lambda x: x[1][0])],
+            },
+            {
+                "key": "no_posto",
+                "label": "No posto",
+                "type": "select",
+                "options": [
+                    {"v": "", "t": "Tanto faz"},
+                    {"v": "dentro", "t": "Dentro da cerca"},
+                    {"v": "fora", "t": "Fora da cerca"},
+                    {"v": "sem", "t": "Sem medição de GPS"},
+                ],
+            },
+        ],
+    }
 
     # ── P7 · Fila de aprovação POR DIA/PESSOA (28/09/2026) ────────────────────
     #
@@ -960,3 +1105,127 @@ from ._frente_10 import MENU_GESTAO as _menu_10  # noqa: E402 — frente 10
 
 EXTRA_MENU.extend(_menu_05)  # frente 05
 EXTRA_MENU.extend(_menu_10)  # frente 10
+
+
+# ── Ponto por período · a consulta que a tela «Ponto eletrônico» não consegue fazer ──────────
+#
+# ⭐ Pedido da Pyetra em 29/09/2026: «selecionar o período por data, por funcionário e outros
+# filtros». Os filtros de VALOR entraram na própria tela `ponto`, onde o ModuleView os resolve
+# no cliente. O PERÍODO precisa de servidor: aquela tela é `LIMIT 200` e as 200 batidas mais
+# recentes não cobrem nem quatro dias.
+#
+# ⚠️ É CONSULTA. Não altera nada — correção de batida continua sendo o modal da linha, com
+# motivo obrigatório e trilha.
+#
+# 🔴 A ROTA PENDURA NO `router` QUE JÁ EXISTE, e isto quase me custou caro: eu escrevi
+# `router = APIRouter()` aqui e o ruff acusou `F811 redefinition of unused router`. Esse nome
+# vem de `._frente_05` (linha ~1103) e o registry lê o `router` DESTE módulo — criar um novo
+# teria apagado silenciosamente todas as rotas `/action/vigilante-*` da frente 05. Uma tela
+# nova derrubando outra frente, sem erro nenhum no log.
+
+#: Teto de linhas. Sem teto, um pedido de «o ano todo, todo mundo» devolve dezenas de milhares
+#: de linhas e trava o navegador dela. Com teto, o que se deve é DIZER que cortou — silêncio
+#: aqui viraria «não houve mais batida», que é a mentira mais cara desta casa.
+_TETO = 500
+
+
+@router.post("/action/ponto-periodo")
+async def ponto_periodo(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
+):
+    """Batidas de um intervalo de datas, com filtros opcionais. Somente leitura."""
+    de_txt = (payload.get("de") or "").strip()
+    ate_txt = (payload.get("ate") or "").strip()
+    if not de_txt or not ate_txt:
+        return {"ok": False, "message": "Informe as duas datas: De e Até."}
+    # ⚠️ DATA DE VERDADE, não texto: com `CAST(:de AS date)` o asyncpg exige um `datetime.date`
+    # e devolve `'str' object has no attribute 'toordinal'` — um 500 cru na cara dela. Converter
+    # aqui também transforma data malformada em RECUSA EXPLICADA em vez de erro de servidor.
+    try:
+        de = date.fromisoformat(de_txt)
+        ate = date.fromisoformat(ate_txt)
+    except ValueError:
+        return {"ok": False, "message": f"Data inválida: «{de_txt}» a «{ate_txt}». Use AAAA-MM-DD."}
+    if de > ate:
+        return {"ok": False, "message": f"O início ({de:%d/%m/%Y}) é depois do fim ({ate:%d/%m/%Y})."}
+
+    # ⚠️ CAST explícito em todo `:ref`: sem isso o asyncpg levanta AmbiguousParameterError.
+    # E o filtro só entra quando foi preenchido — vazio significa «não filtre por isto».
+    cond, par = [], {"de": de, "ate": ate, "teto": _TETO}
+    cond.append("p.punch_timestamp >= CAST(:de AS date)")
+    cond.append("p.punch_timestamp < (CAST(:ate AS date) + INTERVAL '1 day')")
+    if (payload.get("employee_id") or "").strip():
+        cond.append("p.employee_id::text = CAST(:emp AS text)")
+        par["emp"] = payload["employee_id"].strip()
+    if (payload.get("posto") or "").strip():
+        cond.append("coalesce(p.posto_nome,'') = CAST(:posto AS text)")
+        par["posto"] = payload["posto"].strip()
+    if (payload.get("tipo") or "").strip():
+        cond.append("lower(coalesce(p.punch_type::text,'')) = lower(CAST(:tipo AS text))")
+        par["tipo"] = payload["tipo"].strip()
+    if (payload.get("status") or "").strip():
+        cond.append("lower(coalesce(p.status::text,'')) = lower(CAST(:st AS text))")
+        par["st"] = payload["status"].strip()
+    no_posto = (payload.get("no_posto") or "").strip().lower()
+    if no_posto == "dentro":
+        cond.append("p.dentro_geofence IS TRUE")
+    elif no_posto == "fora":
+        cond.append("p.dentro_geofence IS FALSE")
+    elif no_posto == "sem":
+        # Três estados, não dois: ausência de GPS não é «estava fora do posto».
+        cond.append("p.dentro_geofence IS NULL")
+
+    sql = (
+        "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp,'DD/MM/YYYY HH24:MI'), "
+        "       coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—'), "
+        "       coalesce(p.device_type,'—'), p.dentro_geofence, p.distancia_posto_metros, "
+        "       coalesce(p.posto_nome,'') "
+        "  FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
+        " WHERE " + " AND ".join(cond) +
+        " ORDER BY p.punch_timestamp DESC LIMIT CAST(:teto AS int)"
+    )
+    linhas = (await db.execute(text(sql), par)).all()
+
+    # Total REAL do período, sem o teto — é ele que permite dizer honestamente que cortou.
+    total = (
+        await db.execute(
+            text("SELECT count(*) FROM gp_clock_punches p WHERE " + " AND ".join(cond)),
+            {k: v for k, v in par.items() if k != "teto"},
+        )
+    ).scalar() or 0
+
+    rows = [
+        {
+            "cells": [
+                t(r[0], 600, "#0F1B3A", initials(r[0] or "")),
+                t(r[1]),
+                t(_PUNCH_TP.get((r[2] or "").lower(), (r[2] or "—").capitalize())),
+                _celula_posto(r[5], r[6], r[7]),
+                t((r[4] or "—").capitalize()),
+                b(*_PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))),
+            ]
+        }
+        for r in linhas
+    ]
+
+    corte = (
+        f" ⚠️ Mostrando as {_TETO} mais recentes de {total} — refine o período ou o colaborador "
+        "para ver o resto."
+        if total > _TETO
+        else ""
+    )
+    _log.info("ponto-periodo: %s→%s por %s — %s linha(s) de %s",
+              de, ate, getattr(current_user, "email", "?"), len(rows), total)
+    return {
+        "ok": True,
+        "message": f"{de:%d/%m/%Y} a {ate:%d/%m/%Y} · {total} batida(s) no período.{corte}",
+        "tabela": {
+            "cols": ["Colaborador", "Data/hora", "Tipo", "No posto", "Origem", "Status"],
+            # `auto` na coluna do selo: o comprimido de status tem largura FIXA em pixels e
+            # fração é proporção — foi assim que um selo cobriu o texto vizinho em 97 px na
+            # conferência de kits, no mesmo dia.
+            "grid": "minmax(140px,1.4fr) minmax(110px,1fr) minmax(100px,1fr) auto "
+                    "minmax(90px,0.8fr) auto",
+            "rows": rows,
+        },
+    }

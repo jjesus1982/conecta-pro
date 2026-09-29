@@ -741,7 +741,55 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
                 # depois de separar a grade do Tangerino. O -1s agora vale só para a
                 # batida de abertura, que é o que ele sempre quis dizer.
                 "  ) - interval '1 second', (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'),"
-                "   (now() AT TIME ZONE 'America/Manaus') - interval '14 hours')"
+                "   (now() AT TIME ZONE 'America/Manaus') - interval '14 hours',"
+                # 🔴 TERCEIRO PISO: O TURNO AGENDADO TAMBÉM ABRE JORNADA (29/09/2026, a ERIKA).
+                #
+                # Ela escreveu: «a localização do celular está ligada, e mesmo assim não está
+                # querendo fazer o registro de intervalo, em ida e nem volta». O GPS não tinha
+                # nada a ver. A única batida dela no dia, 07:01:03 para um turno 07:00–19:00,
+                # saiu tipada como **`saida`** — e com a chegada tipada como saída ela não
+                # conseguia registrar mais nada.
+                #
+                # A causa: ela é 12x36 e trabalha em dias ÍMPARES. Em 28/09 não tinha turno, e
+                # mesmo assim havia um par de contingência 13:03/17:09 lançado naquele dia. Do
+                # 17:09 até o 07:01 vão **13h51m** — cabe na janela de 14h. O sistema concluiu
+                # que ela continuava a jornada da véspera: `feitas=1`, `seq[1]` = `saida`.
+                #
+                # ⭐ A janela de 14h não estava errada: ela é o corte do espelho de ponto e
+                # protege o noturno que cruza a meia-noite. O que faltava é que **o começo de
+                # um turno AGENDADO também é começo de jornada** — nenhuma batida anterior a
+                # ele pertence ao turno de agora.
+                #
+                # ⚠️ A FOLGA DE 4h EXISTE PORQUE GENTE CHEGA ADIANTADA, e foi medida, não
+                # chutada: em 90 dias, 519 batidas até 1h antes, 95 entre 1 e 2h, 16 entre 2 e
+                # 3h, 10 entre 3 e 4h e **5 além de 4h**. O `LEAST` com a batida mais antiga da
+                # janela de 8h existe para essas cinco: se a pessoa bateu adiantada, o piso
+                # RECUA até incluir a batida dela. Sem isso eu consertaria a ERIKA e passaria a
+                # oferecer «entrada» duas vezes a quem chega muito cedo.
+                #
+                # E não alcança o caso da ERIKA: o 17:09 dela está a mais de 8h do início do
+                # turno seguinte, então o piso continua em 03:00 e a batida órfã fica de fora.
+                #
+                # Medido nos quatro casos vivos no momento da batida dela (07:05 de 29/09):
+                #   ERIKA    piso 14h 28/09 17:05 → piso do turno **29/09 03:00** (muda) ✅
+                #   MAURICIO piso 14h 28/09 18:58 → piso do turno 28/09 15:00 (não muda) ✅
+                #   AILTON   piso 14h 28/09 18:56 → piso do turno 28/09 15:00 (não muda) ✅
+                #   TELMA    piso 14h 29/09 07:02 → piso do turno 29/09 03:00 (não muda) ✅
+                # Os noturnos seguem governados pela janela de 14h, que é o que se queria.
+                "   (SELECT LEAST(t.ini - interval '4 hours', "
+                "       coalesce((SELECT min(p2.punch_timestamp) FROM gp_clock_punches p2 "
+                "                  WHERE p2.employee_id::text = :e "
+                "                    AND p2.punch_timestamp >= t.ini - interval '8 hours' "
+                "                    AND p2.punch_timestamp <= (now() AT TIME ZONE 'America/Manaus')), "
+                "                t.ini - interval '4 hours')) "
+                "      FROM (SELECT max(sh.shift_date + sh.planned_start_time) AS ini "
+                "              FROM shifts sh "
+                "             WHERE sh.employee_id::text = :e AND NOT sh.is_off_day "
+                "               AND (sh.shift_date + sh.planned_start_time) "
+                "                   <= (now() AT TIME ZONE 'America/Manaus') "
+                "               AND (sh.shift_date + sh.planned_start_time) "
+                "                   > (now() AT TIME ZONE 'America/Manaus') - interval '24 hours'"
+                "           ) t WHERE t.ini IS NOT NULL))"
             ),
             {"e": emp},
         )
