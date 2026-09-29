@@ -2229,7 +2229,33 @@ async def rd_kits_conferir(
         "message": msg,
         "tabela": {
             "cols": ["Condomínio", "Colaborador", "O que acontece", "Por quê"],
-            "grid": "1.1fr 1.1fr 1fr 2.4fr",
+            # 🔴 MEDIDO NO NAVEGADOR EM 29/09/2026, e só o navegador mostrava. O despachante
+            # devolvia 200 com os dados certos e a TELA desenhava o selo de «O que acontece»
+            # POR CIMA do texto de «Por quê» — 97 px de sobreposição, nas três linhas.
+            #
+            # Causa: `.rd-pill` é `white-space: nowrap` (redesign.css:327), então o selo
+            # «remover 8 vínculo(s) deste kit» ocupa 216 px e não cabe nos ~118 px que
+            # `1fr` dava a esta coluna. Ele não quebra: transborda para cima da vizinha.
+            #
+            # ⚠️ Conserto aqui, na MINHA coluna, e não no `.rd-pill`: aquela regra vale para
+            # 342 telas e trocar estilo global por causa de uma quebra o que eu não estou
+            # vendo. A causa compartilhada está no relatório.
+            #
+            # ⭐ E a coluna sacrificada não podia ser a do MOTIVO: ela é a razão de a tela
+            # existir — «mostra o motivo, que é o que permite ela discordar de mim».
+            # ⚠️ `auto` na coluna do selo, e NÃO uma fração maior: 1.8fr ainda deixou 18 px de
+            # sobreposição, porque fração é proporção e o selo tem LARGURA FIXA em pixels, que
+            # muda com o texto. `auto` dimensiona pela maior célula — não transborda.
+            # `minmax(150px, …)` no condomínio porque, com `auto` levando o que precisa, as
+            # frações apertaram a primeira coluna e o nome quebrava NO MEIO DA PALAVRA
+            # («CONDOMI NIO RESIDENCI AL GREEN HILLS»). Legível, mas parece defeito — e numa
+            # tela cujo propósito é dar confiança à Pyetra, parecer defeito custa.
+            #
+            # ⚠️ Os mínimos têm ORÇAMENTO: a grade vive em ~660 px úteis e o selo (`auto`) come
+            # ~216. Sobram ~414 para as outras três mais os vãos. Minha primeira tentativa pediu
+            # 150+120+200 = 470 e a sobreposição VOLTOU — mínimo que não cabe não é mínimo, é
+            # transbordo com outro nome.
+            "grid": "minmax(108px, 1fr) minmax(92px, 1fr) auto minmax(148px, 2fr)",
             "rows": rows,
         },
     }
