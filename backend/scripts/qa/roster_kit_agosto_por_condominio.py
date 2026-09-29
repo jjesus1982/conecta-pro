@@ -57,32 +57,41 @@ RESOLVIDO_PELO_JORDAN: dict[str, str] = {
 }
 
 
+def roster_por_condominio(db) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """`({condomínio: {employee_id}}, {employee_id: nome})` — a FONTE ÚNICA do roster.
+
+    Existe como função, e não só dentro do `main`, porque `reconciliar_kit_agosto.py` precisa
+    exatamente desta lista. Duas cópias da regra divergem na primeira mudança — e esta regra já
+    mudou três vezes hoje (alocação → escala → posto da batida), cada uma por uma correção do
+    Jordan. Uma cópia só não tem como ficar atrás.
+    """
+    por_cond: dict[str, set[str]] = {}
+    nomes: dict[str, str] = {}
+    for r in db.execute(
+        text(
+            "SELECT DISTINCT p.employee_id::text AS eid, e.nome, po.name AS cond "
+            "  FROM gp_clock_punches p "
+            "  JOIN employees e ON e.id = p.employee_id "
+            "  JOIN posts po ON po.id::text = p.posto_id "
+            "  JOIN clients c ON c.id = po.client_id "
+            " WHERE p.punch_timestamp >= :i AND p.punch_timestamp < :f AND c.name <> :casa"
+        ),
+        {"i": COMP_INI, "f": COMP_FIM, "casa": CASA},
+    ).mappings():
+        por_cond.setdefault(r["cond"], set()).add(r["eid"])
+        nomes[r["eid"]] = r["nome"]
+    for nome, cond in RESOLVIDO_PELO_JORDAN.items():
+        eid = db.execute(text("SELECT id::text FROM employees WHERE nome = :n"), {"n": nome}).scalar()
+        assert eid, f"«{nome}» não existe em employees — confira o nome antes de montar o kit"
+        por_cond.setdefault(cond, set()).add(eid)
+        nomes[eid] = nome
+    return por_cond, nomes
+
+
 def main() -> None:
     with get_sync_db() as db:
-        # A — o fato: posto gravado na batida de agosto, em posto de CLIENTE
-        por_cond: dict[str, set[str]] = {}
-        nomes: dict[str, str] = {}
-        for r in db.execute(
-            text(
-                "SELECT DISTINCT p.employee_id::text AS eid, e.nome, po.name AS cond "
-                "  FROM gp_clock_punches p "
-                "  JOIN employees e ON e.id = p.employee_id "
-                "  JOIN posts po ON po.id::text = p.posto_id "
-                "  JOIN clients c ON c.id = po.client_id "
-                " WHERE p.punch_timestamp >= :i AND p.punch_timestamp < :f AND c.name <> :casa"
-            ),
-            {"i": COMP_INI, "f": COMP_FIM, "casa": CASA},
-        ).mappings():
-            por_cond.setdefault(r["cond"], set()).add(r["eid"])
-            nomes[r["eid"]] = r["nome"]
-
-        # B — as três que o Jordan resolveu à mão, casadas por NOME EXATO. Nome que não existe
-        #     no banco é erro que grita, não linha que se perde.
-        for nome, cond in RESOLVIDO_PELO_JORDAN.items():
-            eid = db.execute(text("SELECT id::text FROM employees WHERE nome = :n"), {"n": nome}).scalar()
-            assert eid, f"«{nome}» não existe em employees — confira o nome antes de montar o kit"
-            por_cond.setdefault(cond, set()).add(eid)
-            nomes[eid] = nome
+        # A + B — uma fonte só, compartilhada com `reconciliar_kit_agosto.py`.
+        por_cond, nomes = roster_por_condominio(db)
 
         # C — quem bateu em agosto e continua sem condomínio: aparece, nunca desaparece.
         todos_ago = {
