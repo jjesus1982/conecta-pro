@@ -3,34 +3,35 @@
 Decisões do Jordan em 28/09/2026:
   · "faz os kits individual por condomínio"
   · "o kit de setembro com o mês de competência sendo agosto"
-  · "a quantidade de funcionários que temos hoje é de 53"
-  · quem trabalhou em agosto entra no kit de agosto, mesmo não estando mais na casa
+  · "green hills iniciamos lá dia 1 de setembro" → **fora do kit de agosto**, entra em outubro
+  · "rilem e mauricio hoje estão no green hills" → em AGOSTO estavam em Prime Arena e Mirante
 
-## Três coisas que a medição revelou e que este script resolve
+## A âncora é o posto gravado NA BATIDA. Três fontes foram descartadas, cada uma por medição
 
-1. **`employees.status` não serve de população.** Diz 66 ativos e **nenhum tem data de
-   demissão** — 13 saídas nunca foram registradas. Os 53 do Jordan saem de
-   `employee_alocacoes` (alocação vigente), que ele cura à mão: dá exatamente 53.
+1. **`employee_alocacoes` não serve como histórico.** Diz onde a pessoa está HOJE. Medido: a
+   alocação do RILEM ao GREEN HILLS traz `data_inicio = 2026-01-01` e a do MAURICIO
+   `2026-03-01` — num condomínio que **começou em 01/09**. ⭐ As datas são ficção; usá-las
+   importa o condomínio de hoje para dentro de agosto.
 
-2. **Conecta Village é posto da PRÓPRIA CONECTAMAIS ELETRONICA, não de cliente.** Doze
-   pessoas trabalhavam lá (portaria fixa, ronda, jardinagem, serviços gerais, manutenção) e a
-   operação encerrou em 31/08: **zero turnos em setembro** nos 6 postos. Elas têm documento de
-   agosto, mas **não pertencem ao kit de condomínio nenhum** — é por isso que fazer o kit por
-   condomínio, como o Jordan pediu, já as exclui sozinho.
+2. **`shifts` perde gente em silêncio.** Descobrir o condomínio atravessando a escala deixa de
+   fora quem bateu sem turno lançado: medido, 4 pessoas com **84, 57, 49 e 33 batidas** em
+   agosto e nenhum turno. Elas sairiam caladas do kit do cliente.
 
-3. **Dois vocabulários para o mesmo condomínio.** `employee_alocacoes` → `condominios.nome`
-   usa nome curto («IDEAL FLORES»); `shifts.post_id` → `posts.name` usa o longo («Condomínio
-   Ideal Flores da Cidade»). Sem canonizar, o mesmo prédio rende dois kits.
+3. **`employees.status` não serve como população.** Diz 66 ativos e **nenhum tem data de
+   demissão** — 13 saídas nunca foram registradas.
 
-⭐ E a população usa **BATIDA, não escala**: escala é plano, batida é fato, e o kit é prova.
-Medido: por escala entrariam 5 pessoas extras; por batida, 3. As outras 2 tinham turno lançado
-em agosto e nenhuma batida — não há o que documentar.
+Sobra `gp_clock_punches.posto_id`, gravado no momento do fato: resolve **60 de 63** pessoas que
+bateram em agosto. As 3 restantes não têm posto em NENHUMA batida, e para elas a única fonte
+legítima é o Jordan — está em `RESOLVIDO_PELO_JORDAN`, com data. Adivinhar pela alocação
+repetiria o erro do Green Hills.
+
+⚠️ `Conecta Village` é posto da PRÓPRIA CONECTAMAIS ELETRONICA. Doze pessoas trabalhavam lá e a
+operação encerrou em 31/08 (zero turnos em setembro nos 6 postos). Têm documento de agosto e
+**não pertencem a kit de cliente nenhum** — pedir o kit por condomínio já as exclui sozinho.
 """
 
 import os
-import re
 import sys
-import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, "/app")
@@ -40,105 +41,106 @@ from sqlalchemy import text  # noqa: E402
 from core.database.session import get_sync_db  # noqa: E402
 
 COMP_INI, COMP_FIM = "2026-08-01", "2026-09-01"
-#: Postos da própria empresa. O kit é do CLIENTE — o que é nosso não vai nele.
+#: Postos da própria empresa. O kit é documento do CLIENTE — o que é nosso não entra.
 CASA = "CONECTAMAIS ELETRONICA LTDA"
 
-
-def canon(nome: str) -> str:
-    """«Condomínio Ideal Flores da Cidade» e «IDEAL FLORES» viram a mesma chave.
-
-    Tira acento, caixa e as palavras de enfeite que só um dos dois vocabulários usa. NÃO
-    inventa correspondência: o que não casar sai com o nome original e aparece separado no
-    relatório, para um humano olhar. Casar por aproximação silenciosa é como dois clientes
-    passam a dividir um PDF.
-    """
-    s = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode().upper()
-    s = re.sub(r"\b(CONDOMINIO|RESIDENCIAL|COND|EDIFICIO|VILLAGE|DA|DE|DO|DOS|DAS|CIDADE)\b", " ", s)
-    s = re.sub(r"[^A-Z0-9]+", " ", s).strip()
-    # «VILLA PASSAROS» vs «VILLA DOS PASSAROS» já colapsam pela remoção de DOS.
-    return re.sub(r"\s+", " ", s)
+#: Quem bateu em agosto e NÃO tem posto em nenhuma batida. Resolvido pelo Jordan em 28/09/2026,
+#: perguntado nominalmente. É a única fonte aceitável: o dado não sabe, e a alocação MENTE
+#: (provado no Green Hills). Chave = nome exato em `employees.nome`.
+RESOLVIDO_PELO_JORDAN: dict[str, str] = {
+    "KELLY PATRICIA DA SILVA DE SOUZA": "Condomínio Ideal Flores da Cidade",
+    # "keyson foi demitido em agosto" — em agosto tinha 48 turnos no Prime Arena
+    "KEYSON DA SILVA PINTO": "Condomínio Prime Arena",
+    # "eidy estava de férias" — férias APROVADAS de 07/08 a 05/09, registradas no sistema;
+    # trabalhou de 01 a 06/08. "estava no villa dei fiori"
+    "EIDY CULIER DE CASTRO": "Condomínio Villa Dei Fiori",
+}
 
 
 def main() -> None:
     with get_sync_db() as db:
-        # A — os 53: alocação vigente, curada pelo Jordan
-        atual = db.execute(
+        # A — o fato: posto gravado na batida de agosto, em posto de CLIENTE
+        por_cond: dict[str, set[str]] = {}
+        nomes: dict[str, str] = {}
+        for r in db.execute(
             text(
-                "SELECT a.employee_id::text AS eid, e.nome AS pessoa, "
-                "       coalesce(cd.name, cd2.nome, '(condominio nao resolvido)') AS cond "
-                "  FROM employee_alocacoes a "
-                "  JOIN employees e ON e.id = a.employee_id "
-                "  LEFT JOIN condominiums cd ON cd.id = a.condominio_id "
-                "  LEFT JOIN condominios  cd2 ON cd2.id = a.condominio_id "
-                " WHERE coalesce(a.ativo,false) = true AND a.data_inicio <= current_date "
-                "   AND (a.data_fim IS NULL OR a.data_fim >= current_date)"
-            )
-        ).mappings().all()
-
-        # B — quem BATEU em agosto num posto de CLIENTE e não está mais alocado.
-        #     Batida, não escala: o kit prova o que aconteceu.
-        extras = db.execute(
-            text(
-                "SELECT DISTINCT p.employee_id::text AS eid, e.nome AS pessoa, po.name AS cond, "
-                "       count(*) OVER (PARTITION BY p.employee_id) AS batidas "
+                "SELECT DISTINCT p.employee_id::text AS eid, e.nome, po.name AS cond "
                 "  FROM gp_clock_punches p "
                 "  JOIN employees e ON e.id = p.employee_id "
-                "  JOIN shifts s ON s.employee_id = p.employee_id AND s.shift_date = p.punch_timestamp::date "
-                "  JOIN posts po ON po.id = s.post_id "
+                "  JOIN posts po ON po.id::text = p.posto_id "
                 "  JOIN clients c ON c.id = po.client_id "
-                " WHERE p.punch_timestamp >= :ini AND p.punch_timestamp < :fim "
-                "   AND c.name <> :casa "
-                "   AND NOT EXISTS (SELECT 1 FROM employee_alocacoes a WHERE a.employee_id = p.employee_id "
-                "         AND coalesce(a.ativo,false) = true AND a.data_inicio <= current_date "
-                "         AND (a.data_fim IS NULL OR a.data_fim >= current_date))"
+                " WHERE p.punch_timestamp >= :i AND p.punch_timestamp < :f AND c.name <> :casa"
             ),
-            {"ini": COMP_INI, "fim": COMP_FIM, "casa": CASA},
-        ).mappings().all()
+            {"i": COMP_INI, "f": COMP_FIM, "casa": CASA},
+        ).mappings():
+            por_cond.setdefault(r["cond"], set()).add(r["eid"])
+            nomes[r["eid"]] = r["nome"]
 
-        # C — quem bateu em agosto SÓ em posto da própria casa: tem documento, não tem kit.
-        internos = db.execute(
+        # B — as três que o Jordan resolveu à mão, casadas por NOME EXATO. Nome que não existe
+        #     no banco é erro que grita, não linha que se perde.
+        for nome, cond in RESOLVIDO_PELO_JORDAN.items():
+            eid = db.execute(text("SELECT id::text FROM employees WHERE nome = :n"), {"n": nome}).scalar()
+            assert eid, f"«{nome}» não existe em employees — confira o nome antes de montar o kit"
+            por_cond.setdefault(cond, set()).add(eid)
+            nomes[eid] = nome
+
+        # C — quem bateu em agosto e continua sem condomínio: aparece, nunca desaparece.
+        todos_ago = {
+            r[0]: r[1]
+            for r in db.execute(
+                text(
+                    "SELECT DISTINCT p.employee_id::text, e.nome FROM gp_clock_punches p "
+                    "  JOIN employees e ON e.id = p.employee_id "
+                    " WHERE p.punch_timestamp >= :i AND p.punch_timestamp < :f"
+                ),
+                {"i": COMP_INI, "f": COMP_FIM},
+            ).all()
+        }
+        na_casa = {
+            r[0]
+            for r in db.execute(
+                text(
+                    "SELECT DISTINCT p.employee_id::text FROM gp_clock_punches p "
+                    "  JOIN posts po ON po.id::text = p.posto_id JOIN clients c ON c.id = po.client_id "
+                    " WHERE p.punch_timestamp >= :i AND p.punch_timestamp < :f AND c.name = :casa"
+                ),
+                {"i": COMP_INI, "f": COMP_FIM, "casa": CASA},
+            ).all()
+        }
+        colocados = {e for v in por_cond.values() for e in v}
+        orfaos = {e: n for e, n in todos_ago.items() if e not in colocados and e not in na_casa}
+
+        # D — quanto de agosto é MEDIÇÃO. O espelho só conta as fontes medidas; o Tangerino
+        #     traz a GRADE da escala (65% em hora cheia em agosto) e o `web`, 4 horários
+        #     distintos para 414 batidas. Isto não é defeito: é dia que nunca foi medido.
+        med = db.execute(
             text(
-                "SELECT DISTINCT e.nome FROM gp_clock_punches p "
-                "  JOIN employees e ON e.id = p.employee_id "
-                "  JOIN shifts s ON s.employee_id = p.employee_id AND s.shift_date = p.punch_timestamp::date "
-                "  JOIN posts po ON po.id = s.post_id JOIN clients c ON c.id = po.client_id "
-                " WHERE p.punch_timestamp >= :ini AND p.punch_timestamp < :fim AND c.name = :casa "
-                "   AND NOT EXISTS (SELECT 1 FROM employee_alocacoes a WHERE a.employee_id = p.employee_id "
-                "         AND coalesce(a.ativo,false) = true AND a.data_inicio <= current_date "
-                "         AND (a.data_fim IS NULL OR a.data_fim >= current_date)) "
-                " ORDER BY 1"
+                "SELECT count(*) AS total, "
+                "  count(*) FILTER (WHERE lower(coalesce(device_type,'')) IN "
+                "    ('mobile','contingencia','facial','biometria','app','relogio')) AS medida "
+                "  FROM gp_clock_punches WHERE punch_timestamp >= :i AND punch_timestamp < :f"
             ),
-            {"ini": COMP_INI, "fim": COMP_FIM, "casa": CASA},
-        ).scalars().all()
-
-    por_cond: dict[str, dict[str, str]] = {}
-    rotulo: dict[str, str] = {}
-    for r in atual:
-        k = canon(r["cond"])
-        rotulo.setdefault(k, r["cond"])
-        por_cond.setdefault(k, {})[r["eid"]] = r["pessoa"]
-    novos: list[str] = []
-    for r in extras:
-        k = canon(r["cond"])
-        if k not in por_cond:
-            # condomínio que só aparece pela escala de agosto — não casou com nenhum atual
-            rotulo.setdefault(k, r["cond"])
-        por_cond.setdefault(k, {})
-        if r["eid"] not in por_cond[k]:
-            por_cond[k][r["eid"]] = r["pessoa"]
-            novos.append(f"{r['pessoa']} → {rotulo[k]}")
+            {"i": COMP_INI, "f": COMP_FIM},
+        ).mappings().first()
 
     total = len({e for v in por_cond.values() for e in v})
     print(f"KIT DE AGOSTO · {len(por_cond)} condomínio(s) · {total} pessoa(s)\n")
-    for k in sorted(por_cond, key=lambda x: (-len(por_cond[x]), x)):
-        print(f"  {rotulo[k]:<34} {len(por_cond[k]):>3} pessoa(s)")
-    print(f"\nEntraram por terem TRABALHADO em agosto sem alocação hoje ({len(novos)}):")
-    for n in sorted(novos):
-        print(f"  + {n}")
-    print(f"\nFORA de todo kit de cliente — só trabalharam em posto NOSSO ({len(internos)}):")
-    for n in internos:
-        print(f"  · {n}")
-    print("\n⚠️ Conferir com o Jordan antes de montar: o kit é documento do cliente.")
+    for cond in sorted(por_cond, key=lambda x: (-len(por_cond[x]), x)):
+        print(f"  {cond:<36} {len(por_cond[cond]):>3}")
+    print(f"\nResolvidos pelo Jordan (o dado não tinha posto): {len(RESOLVIDO_PELO_JORDAN)}")
+    for n, c in RESOLVIDO_PELO_JORDAN.items():
+        print(f"  + {n} → {c}")
+    print(f"\nFora de kit de cliente — só bateram em posto NOSSO: {len(na_casa)}")
+    if orfaos:
+        print(f"\n⚠️ SEM CONDOMÍNIO, precisam do Jordan ({len(orfaos)}):")
+        for n in sorted(orfaos.values()):
+            print(f"  ? {n}")
+    else:
+        print("\nOK ninguém ficou sem condomínio.")
+    pct = 100.0 * (med["medida"] or 0) / (med["total"] or 1)
+    print(f"\n⚠️ AGOSTO: {med['medida']} de {med['total']} batidas são MEDIÇÃO ({pct:.0f}%). "
+          f"O resto é grade de escala (Tangerino/web) e o espelho não conta — a folha de ponto "
+          f"do kit vai mostrar só os dias efetivamente medidos.")
 
 
 if __name__ == "__main__":
