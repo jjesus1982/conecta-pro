@@ -1165,12 +1165,27 @@ function PontoTab() {
    * que eu conseguia imaginar, e a real acontece mais cedo que todas elas.
    *
    * Por quatro dias o ÚNICO sensor foi uma pessoa insistindo no WhatsApp. Este relógio troca isso
-   * por telemetria: se a fase não voltar a `idle` em 45s, registra `app_travou_<fase>` — e o nome
-   * da FASE é o que torna o registro acionável, porque «travou» sozinho não diz onde.
+   * por telemetria: se a fase não voltar a `idle` em 45s, registra `app_fase_lenta_<fase>` — e o
+   * nome da FASE é o que torna o registro acionável, porque «lento» sozinho não diz onde.
    *
-   * ⚠️ 45s de propósito: um facial lento legítimo leva alguns segundos, e ninguém espera 45
-   * segundos achando que está funcionando. Dispara UMA vez por episódio (o `avisado` da ref),
-   * senão a guarita gera uma linha a cada segundo e o sinal vira ruído.
+   * 🔴 O NOME MUDOU EM 29/09, E O MOTIVO É O PRIMEIRO DADO QUE ELE PRODUZIU.
+   *
+   * Ele se chamava `app_travou_<fase>`. No dia em que entrou no ar disparou duas vezes para a
+   * ANGELA, e eu fui conferir o que aconteceu depois:
+   *
+   *     aviso 11:59:53 → batida 12:00:08 (`saida_almoco`)  — 14 s depois
+   *     aviso 13:00:07 → batida 13:00:08 (`retorno_almoco`) —  1 s depois
+   *
+   * ⭐ A fase passou dos 45s e **concluiu**. «Travou» é uma conclusão; o que este relógio mede é
+   * DURAÇÃO. Quem lesse o log diria que ela não conseguiu bater — e ela bateu. Registro que
+   * induz conclusão errada é a mesma família dos defeitos que ele foi criado para achar.
+   *
+   * ⚠️ 45s de propósito: um facial legítimo leva segundos, e ninguém espera 45 achando que está
+   * funcionando. Dispara UMA vez por episódio (o `avisado` da ref), senão a guarita gera uma
+   * linha por segundo e o sinal vira ruído.
+   *
+   * ⚠️ O que ele NÃO distingue: demora que termina de demora que nunca termina. Para isso
+   * faltaria um segundo relógio (uns 5 min) — anotado, não feito.
    */
   const travouRef = useRef<{ fase: string; avisado: boolean } | null>(null);
   useEffect(() => {
@@ -1180,9 +1195,11 @@ function PontoTab() {
       const atual = travouRef.current;
       if (!atual || atual.fase !== fase || atual.avisado) return;
       atual.avisado = true;
-      void registrarFalha(`app_travou_${fase}`, {
-        detalhe: `a tela ficou na fase «${fase}» por mais de 45s sem concluir nem falhar — `
-          + `é o «fica rodando direto» que as pessoas relatam`,
+      void registrarFalha(`app_fase_lenta_${fase}`, {
+        detalhe: `a fase «${fase}» passou de 45s sem concluir. ISTO MEDE DEMORA, NÃO FALHA: `
+          + `a batida PODE ter entrado depois (medido em 29/09: 14s e 1s depois do aviso). `
+          + `É o «fica rodando direto» que as pessoas relatam — do lado de quem espera, `
+          + `um minuto parado na guarita é o mesmo que não funcionar.`,
       });
     }, 45_000);
     return () => clearTimeout(t);
