@@ -148,15 +148,38 @@ async def _turnos_da_janela(db: AsyncSession, dia: date) -> list[dict]:
     pontas: string vazia deixa de ser um valor e o coalesce funciona como se espera.
     """
     rows = (await db.execute(text("""
-        SELECT s.id::text, s.employee_id::text, s.post_id::text, s.shift_date, s.planned_start_time,
+        -- ⭐ 29/09/2026 — A HORA EFETIVA, NÃO O CADASTRO CRU. Este é o QUARTO lugar que diz
+        -- uma hora para a pessoa («amanhã você assume às 07h») e o último que eu achei: os
+        -- outros três foram `punch_service` (recusa), `lembrete_ponto` (aviso) e
+        -- `mapa_de_ponto` (classificação, e por herança a folha).
+        --
+        -- 🔴 Sem isto, amanhã a CELIANE receberia «assume às 08h» trabalhando às 09:00 — a
+        -- casa mandaria a hora errada DEPOIS de já ter pedido desculpa por ela hoje de manhã.
+        --
+        -- ⚠️ A hora efetiva entra TAMBÉM no WHERE e no ORDER BY, não só no SELECT: a janela
+        -- 06:00–07:59 decide QUEM entra no lote. Corrigir só o texto mandaria a hora certa
+        -- para quem o cadastro errado deixou entrar, e continuaria deixando de fora quem ele
+        -- errou para o outro lado.
+        SELECT s.id::text, s.employee_id::text, s.post_id::text, s.shift_date,
+               coalesce((SELECT hv.entrada FROM ponto_horario_vigencia hv
+                          WHERE hv.employee_id = s.employee_id
+                            AND hv.vigencia_inicio <= s.shift_date
+                            AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= s.shift_date)
+                          ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                        s.planned_start_time) AS planned_start_time,
                e.nome, coalesce(nullif(e.celular,''), e.telefone) AS telefone, e.cargo, p.name AS posto
           FROM shifts s
           JOIN employees e ON e.id = s.employee_id
           LEFT JOIN posts p ON p.id = s.post_id
          WHERE s.shift_date = :d AND s.is_active AND NOT s.is_off_day
-           AND s.planned_start_time BETWEEN :hmin AND :hmax
+           AND coalesce((SELECT hv.entrada FROM ponto_horario_vigencia hv
+                          WHERE hv.employee_id = s.employee_id
+                            AND hv.vigencia_inicio <= s.shift_date
+                            AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= s.shift_date)
+                          ORDER BY hv.vigencia_inicio DESC LIMIT 1),
+                        s.planned_start_time) BETWEEN :hmin AND :hmax
            AND e.status = 'ativo'
-         ORDER BY s.planned_start_time, e.nome"""),
+         ORDER BY planned_start_time, e.nome"""),
         {"d": dia, "hmin": HORA_MIN, "hmax": HORA_MAX})).mappings().all()
     return [dict(r) for r in rows]
 
