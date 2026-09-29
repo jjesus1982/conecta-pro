@@ -256,12 +256,37 @@ class PunchService:
             _ts = datetime.fromisoformat(timestamp)
             _ref = (await self.db.execute(
                 text(
-                    "SELECT s.planned_start_time, s.planned_end_time, "
-                    "       (s.shift_date + s.planned_start_time) AS inicio, "
-                    "       (s.shift_date + s.planned_end_time "
-                    "        + CASE WHEN s.planned_end_time <= s.planned_start_time "
+                    # 🔴 29/09/2026 — A VIGÊNCIA DE HORÁRIO SOBREPÕE A ESCALA.
+                    #
+                    # `ponto_horario_vigencia` guarda o horário CERTO de quem tem o cadastro errado.
+                    # A única linha dela, gravada em 24/09 por «jordan via jose-luis», diz:
+                    #   entrada 09:00 · saída 18:00 · «o cadastro trazia 08:00-17:00 e a acusava de
+                    #   60min de atraso todo dia»
+                    #
+                    # ⭐ E nada aqui a lia. Medido em 29/09: a tabela é consultada em UM lugar no
+                    # backend inteiro (`whatsapp/supervisao.py`), e não neste — que é justamente
+                    # quem decide atraso. A CELIANE foi acusada por CINCO DIAS depois da correção
+                    # existir, e três vezes só na manhã de 29/09.
+                    #
+                    # ⚠️ E não era só acusação: sem justificativa, este caminho RECUSA a batida
+                    # (409, «sem isso ela não é registrada»). Ela era obrigada a justificar um
+                    # atraso inexistente TODO DIA para conseguir bater. Palavras dela: «já falei
+                    # várias vezes», «eu nunca bater pode atrasado».
+                    #
+                    # A resposta certa estava escrita, com autor e data, e o código não a lia.
+                    # `coalesce` na vigência VIGENTE no dia do turno; sem linha, nada muda.
+                    "SELECT coalesce(hv.entrada, s.planned_start_time) AS planned_start_time, "
+                    "       coalesce(hv.saida, s.planned_end_time)     AS planned_end_time, "
+                    "       (s.shift_date + coalesce(hv.entrada, s.planned_start_time)) AS inicio, "
+                    "       (s.shift_date + coalesce(hv.saida, s.planned_end_time) "
+                    "        + CASE WHEN coalesce(hv.saida, s.planned_end_time) "
+                    "                 <= coalesce(hv.entrada, s.planned_start_time) "
                     "               THEN INTERVAL '1 day' ELSE INTERVAL '0' END) AS fim "
                     "  FROM shifts s "
+                    "  LEFT JOIN ponto_horario_vigencia hv "
+                    "         ON hv.employee_id = s.employee_id "
+                    "        AND hv.vigencia_inicio <= s.shift_date "
+                    "        AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= s.shift_date) "
                     " WHERE s.employee_id = CAST(:e AS uuid) AND s.is_active "
                     "   AND coalesce(s.status,'') NOT IN ('cancelled','cancelado','cancelada') "
                     "   AND s.shift_date BETWEEN CAST(CAST(:d AS text) AS date) - 1 "
@@ -269,9 +294,14 @@ class PunchService:
                     # o turno cujo marco (início p/ entrada, fim p/ saída) está mais PRÓXIMO
                     # desta batida — é o que evita comparar com o turno de outro dia
                     " ORDER BY abs(EXTRACT(EPOCH FROM ("
-                    "     CASE WHEN :tp = 'entrada' THEN (s.shift_date + s.planned_start_time) "
-                    "          ELSE (s.shift_date + s.planned_end_time "
-                    "                + CASE WHEN s.planned_end_time <= s.planned_start_time "
+                    # a escolha do turno mais próximo usa o MESMO horário corrigido: comparar
+                    # com o cadastro errado aqui escolheria o turno errado e o coalesce acima
+                    # viraria enfeite.
+                    "     CASE WHEN :tp = 'entrada' "
+                    "          THEN (s.shift_date + coalesce(hv.entrada, s.planned_start_time)) "
+                    "          ELSE (s.shift_date + coalesce(hv.saida, s.planned_end_time) "
+                    "                + CASE WHEN coalesce(hv.saida, s.planned_end_time) "
+                    "                         <= coalesce(hv.entrada, s.planned_start_time) "
                     "                       THEN INTERVAL '1 day' ELSE INTERVAL '0' END) END "
                     "     - CAST(CAST(:ts AS text) AS timestamp)))) LIMIT 1"
                 ),
