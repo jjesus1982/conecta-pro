@@ -6,7 +6,7 @@ Só leitura. Nunca fabricar — vazio real = "aguardando dado".
 """
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import Body, Depends
 from sqlalchemy import text
@@ -729,11 +729,21 @@ async def build(db) -> dict:
             {"key": "origem", "label": "Origem", "todos": "Todas"},
         ]
         out["ponto"]["filterUnit"] = "batida(s)"
+        # 🔴 29/09/2026, e o Jordan achou testando: «selecionei um funcionário, quero
+        # selecionar o período, o mês, o dia — a data ainda não consigo puxar, por quê?»
+        #
+        # A explicação técnica estava certa e NÃO ADIANTOU NADA: ele procurou a data onde
+        # estavam os outros filtros, não achou, e a resposta «está em outra tela» só existia
+        # no fim de um subtítulo. ⭐ Separação que eu justifico tecnicamente mas o usuário não
+        # encontra é separação mal feita — o botão agora está na tela, no topo.
+        out["ponto"]["cta"] = "Buscar por data / período"
+        out["ponto"]["ctaTo"] = "ponto-periodo"
         out["ponto"]["sub"] = (
-            str(out["ponto"].get("sub") or "")
-            + " · Filtre por colaborador, posto, tipo, status, no posto e origem — os filtros "
-            "valem sobre as 200 batidas mais recentes. Para escolher um PERÍODO por data, use "
-            "«Ponto por período», que consulta o servidor."
+            "📅 Para escolher DATA, mês ou dia, clique em «Buscar por data / período» — esta "
+            "tela mostra só as 200 batidas mais recentes (cerca de 4 dias), e os filtros abaixo "
+            "escolhem entre elas. · "
+            + str(out["ponto"].get("sub") or "")
+            + " · Filtre por colaborador, posto, tipo, status, no posto e origem."
         )
 
     # ── Ponto por período (29/09/2026) ────────────────────────────────────────────────────
@@ -783,6 +793,27 @@ async def build(db) -> dict:
             "showResult": True,
         },
         "fields": [
+            # ⭐ «o mês, o dia» — as palavras do Jordan. Duas datas resolvem, mas obrigam a
+            # calcular o primeiro e o último dia na mão toda vez. O atalho faz o caso comum
+            # em um clique; quem quer intervalo esquisito continua digitando as datas.
+            {
+                "key": "rapido",
+                "label": "Período rápido",
+                "type": "select",
+                "span": "span 2",
+                "options": [
+                    {"value": "", "label": "Usar as datas abaixo"},
+                    {"value": "hoje", "label": "Hoje"},
+                    {"value": "ontem", "label": "Ontem"},
+                    {"value": "7d", "label": "Últimos 7 dias"},
+                    {"value": "mes", "label": "Este mês"},
+                    {"value": "mes_passado", "label": "Mês passado"},
+                ],
+            },
+            # ⚠️ `{value,label}` e NUNCA `{v,t}`: o ModuleView renderiza `value={o.value}` e
+            # `{o.label}` (ModuleView.tsx:404). Eu escrevi `{v,t}` e todas as opções desta tela
+            # saíram EM BRANCO — a API devolvia 200 com os dados certos e o seletor não
+            # selecionava nada. Só o navegador pegou: «did not find some options».
             {"key": "de", "label": "De*", "type": "date", "value": _ini_mes.isoformat()},
             {"key": "ate", "label": "Até*", "type": "date", "value": _hoje.isoformat()},
             {
@@ -790,38 +821,38 @@ async def build(db) -> dict:
                 "label": "Colaborador",
                 "type": "select",
                 "span": "span 2",
-                "options": [{"v": "", "t": "Todos"}]
-                + [{"v": str(p[0]), "t": p[1]} for p in _pessoas],
+                "options": [{"value": "", "label": "Todos"}]
+                + [{"value": str(p[0]), "label": p[1]} for p in _pessoas],
             },
             {
                 "key": "posto",
                 "label": "Posto",
                 "type": "select",
-                "options": [{"v": "", "t": "Todos"}] + [{"v": p[0], "t": p[0]} for p in _postos],
+                "options": [{"value": "", "label": "Todos"}] + [{"value": p[0], "label": p[0]} for p in _postos],
             },
             {
                 "key": "tipo",
                 "label": "Tipo",
                 "type": "select",
-                "options": [{"v": "", "t": "Todos"}]
-                + [{"v": k, "t": v} for k, v in sorted(_PUNCH_TP.items(), key=lambda x: x[1])],
+                "options": [{"value": "", "label": "Todos"}]
+                + [{"value": k, "label": v} for k, v in sorted(_PUNCH_TP.items(), key=lambda x: x[1])],
             },
             {
                 "key": "status",
                 "label": "Status",
                 "type": "select",
-                "options": [{"v": "", "t": "Todos"}]
-                + [{"v": k, "t": v[0]} for k, v in sorted(_PUNCH_ST.items(), key=lambda x: x[1][0])],
+                "options": [{"value": "", "label": "Todos"}]
+                + [{"value": k, "label": v[0]} for k, v in sorted(_PUNCH_ST.items(), key=lambda x: x[1][0])],
             },
             {
                 "key": "no_posto",
                 "label": "No posto",
                 "type": "select",
                 "options": [
-                    {"v": "", "t": "Tanto faz"},
-                    {"v": "dentro", "t": "Dentro da cerca"},
-                    {"v": "fora", "t": "Fora da cerca"},
-                    {"v": "sem", "t": "Sem medição de GPS"},
+                    {"value": "", "label": "Tanto faz"},
+                    {"value": "dentro", "label": "Dentro da cerca"},
+                    {"value": "fora", "label": "Fora da cerca"},
+                    {"value": "sem", "label": "Sem medição de GPS"},
                 ],
             },
         ],
@@ -1134,8 +1165,28 @@ async def ponto_periodo(
     current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
 ):
     """Batidas de um intervalo de datas, com filtros opcionais. Somente leitura."""
-    de_txt = (payload.get("de") or "").strip()
-    ate_txt = (payload.get("ate") or "").strip()
+    # O atalho VENCE as datas quando escolhido: se ela marcou «Este mês» e esqueceu de mexer
+    # nos campos, o que ela pediu foi o mês. Campo que é ignorado em silêncio é armadilha.
+    rapido = (payload.get("rapido") or "").strip().lower()
+    if rapido:
+        _h = date.today()
+        if rapido == "hoje":
+            de_txt = ate_txt = _h.isoformat()
+        elif rapido == "ontem":
+            _o = _h - timedelta(days=1)
+            de_txt = ate_txt = _o.isoformat()
+        elif rapido == "7d":
+            de_txt, ate_txt = (_h - timedelta(days=6)).isoformat(), _h.isoformat()
+        elif rapido == "mes":
+            de_txt, ate_txt = _h.replace(day=1).isoformat(), _h.isoformat()
+        elif rapido == "mes_passado":
+            _fim = _h.replace(day=1) - timedelta(days=1)
+            de_txt, ate_txt = _fim.replace(day=1).isoformat(), _fim.isoformat()
+        else:
+            return {"ok": False, "message": f"Período rápido desconhecido: «{rapido}»."}
+    else:
+        de_txt = (payload.get("de") or "").strip()
+        ate_txt = (payload.get("ate") or "").strip()
     if not de_txt or not ate_txt:
         return {"ok": False, "message": "Informe as duas datas: De e Até."}
     # ⚠️ DATA DE VERDADE, não texto: com `CAST(:de AS date)` o asyncpg exige um `datetime.date`

@@ -49,7 +49,7 @@ test.describe('Ponto — filtros e período', () => {
     expect(await datas.nth(1).inputValue()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
     // Colaborador + posto + tipo + status + no posto = cinco seletores.
-    await expect(main.locator('select')).toHaveCount(5);
+    await expect(main.locator('select')).toHaveCount(6); // +1: o «Período rápido»
 
     // Um intervalo estreito de propósito: o teste não é de carga.
     await datas.nth(0).fill('2026-09-28');
@@ -76,5 +76,34 @@ test.describe('Ponto — filtros e período', () => {
     expect(rola, 'a tabela larga precisa ROLAR, não ser cortada').toBe(true);
     await page.screenshot({ path: 'e2e/.out/ponto-periodo.png', fullPage: true });
     console.log('RESULTADO DO PERÍODO:\n' + corpo.slice(0, 900));
+  });
+
+  test('o botão da tela `ponto` leva ao período, e o atalho «Este mês» funciona', async ({ page }) => {
+    // 🔴 O Jordan testou e perguntou: «selecionei um funcionário, quero selecionar o período, o
+    // mês, o dia — a data ainda não consigo puxar, por quê?». A explicação técnica estava certa
+    // e não adiantou: ele procurou a data onde estavam os outros filtros. Este teste trava o
+    // CAMINHO, não a explicação.
+    await page.goto(`/redesign/gestao-de-pessoas?t=ponto&_cb=${Date.now()}`);
+    await page.waitForLoadState('networkidle');
+
+    // ⚠️ O CTA mora no CABEÇALHO, fora do <main> interno — por isso aqui o escopo é a página.
+    const botao = page.getByRole('button', { name: /Buscar por data \/ período/i });
+    await expect(botao).toBeVisible({ timeout: 60_000 });
+    await botao.click();
+
+    const main = page.locator('main').last();
+    await expect(main.getByText(/Ponto por período/i).first()).toBeVisible({ timeout: 60_000 });
+
+    // ⚠️ Escolher o select pela POSIÇÃO falhou («did not find some options»): a ordem
+    // renderizada não é a de declaração. O ancoradouro certo é o próprio conteúdo — o único
+    // select que tem a opção `mes` é o do atalho.
+    const rapido = main.locator('select').filter({ has: page.locator('option[value="mes"]') });
+    await rapido.selectOption('mes');
+    await main.getByRole('button', { name: /^Buscar$/ }).click();
+
+    await expect(main.getByText(/batida\(s\) no período/)).toBeVisible({ timeout: 120_000 });
+    const msg = await main.innerText();
+    expect(msg, 'o atalho «Este mês» tem de abrir no dia 1').toMatch(/01\/\d{2}\/\d{4} a /);
+    await page.screenshot({ path: 'e2e/.out/ponto-periodo-mes.png', fullPage: true });
   });
 });
