@@ -75,10 +75,41 @@ MARCO_SEM_HORARIO = "saida_almoco"
 #: A referência de cada marco: o INSTANTE que devia ter sido batido.
 #: ⚠️ `_REF_SAIDA` soma um dia quando o fim é menor que o início — noturno cruza a meia-noite e
 #: `TIME + 24 hours` **dá a volta** em vez de avançar o dia.
-_REF_ENTRADA = "(sh.shift_date + sh.planned_start_time)"
+#: ⭐ 29/09/2026 — A HORA CORRIGIDA À MÃO MANDA AQUI TAMBÉM.
+#:
+#: A CELIANE recebeu, em 28 e 29/09: «Seu turno no Condomínio Ideal Flores da Cidade começa em 5
+#: minutos, às **08:00**» — disparado às 07:55. Ela entra às **09:00**, e o horário certo estava
+#: gravado em `ponto_horario_vigencia` desde 24/09, pelo próprio dono, no grupo.
+#:
+#: O mesmo cadastro errado fazia `punch_service` RECUSAR a batida dela por 60 minutos de atraso
+#: inexistente. Aquele lado foi consertado hoje; este NÃO, e é o pior dos dois: recusar ela
+#: percebe e reclama — **o lembrete ensina a hora errada e ela acredita**.
+#:
+#: ⚠️ Medido: 43 arquivos usam `planned_start_time` e apenas 2 liam a vigência. Este é o terceiro,
+#: escolhido porque é o que FALA com a pessoa. Os outros 40 estão no relatório, não consertados.
+#:
+#: Fica como subconsulta correlacionada de propósito: `_REF_*` é interpolado em várias consultas
+#: e um JOIN exigiria mexer no FROM de cada uma — aqui a correção entra em todas de uma vez,
+#: inclusive no `to_char({ref})` que escreve a hora NA MENSAGEM. Um conserto, dois efeitos.
+def _hora_vigente(campo: str) -> str:
+    """Horário efetivo do turno: o corrigido à mão se houver vigência na data, senão o cadastro."""
+    return (
+        f"coalesce((SELECT hv.{campo} FROM ponto_horario_vigencia hv "
+        "           WHERE hv.employee_id = sh.employee_id "
+        "             AND hv.vigencia_inicio <= sh.shift_date "
+        "             AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date) "
+        "           ORDER BY hv.vigencia_inicio DESC LIMIT 1), "
+        f"         sh.planned_{'start' if campo == 'entrada' else 'end'}_time)"
+    )
+
+
+_HORA_ENTRADA = _hora_vigente("entrada")
+_HORA_SAIDA = _hora_vigente("saida")
+
+_REF_ENTRADA = f"(sh.shift_date + {_HORA_ENTRADA})"
 _REF_SAIDA = (
-    "(sh.shift_date + sh.planned_end_time + CASE WHEN sh.planned_end_time <= "
-    "sh.planned_start_time THEN INTERVAL '1 day' ELSE INTERVAL '0' END)"
+    f"(sh.shift_date + {_HORA_SAIDA} + CASE WHEN {_HORA_SAIDA} <= "
+    f"{_HORA_ENTRADA} THEN INTERVAL '1 day' ELSE INTERVAL '0' END)"
 )
 #: ⭐ A volta do almoço é o único marco cuja hora prevista sai de uma BATIDA, não da escala:
 #: quem saiu 12:07 para 60 minutos deve voltar 13:07. Medido em 7 dias: **99 saídas para almoço

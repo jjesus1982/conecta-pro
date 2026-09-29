@@ -52,6 +52,7 @@ from sqlalchemy import text  # noqa: E402
 from core.database.session import get_sync_db  # noqa: E402
 
 _SVC = "/app/modules/people_management/ponto/services/punch_service.py"
+_LEMBRETE = "/app/modules/operacional/lembrete_ponto.py"
 TABELA = "ponto_horario_vigencia"
 
 
@@ -85,7 +86,53 @@ def main() -> None:
         "atraso de turnos de meses anteriores, mudando folha já fechada"
     )
 
-    # 4 — comportamento contra o banco: quem tem vigência usa ela, quem não tem não muda.
+    # ⭐ 4 — O LEMBRETE TAMBÉM. Consertar só quem RECUSA e deixar quem AVISA é meio conserto, e o
+    # meio que sobrou é o pior: a recusa ela percebe e reclama; o lembrete ensina a hora errada e
+    # ela acredita. Medido em 28 e 29/09: a CELIANE recebeu «começa em 5 minutos, às 08:00»,
+    # disparado às 07:55, quando ela entra às 09:00.
+    with open(_LEMBRETE, encoding="utf-8") as fh:
+        lembrete = fh.read()
+    ast.parse(lembrete)
+    assert TABELA in lembrete, (
+        f"`{TABELA}` saiu de lembrete_ponto: o aviso volta a mandar a pessoa bater na hora do "
+        "cadastro errado — e como a hora exibida sai da MESMA referência, a mensagem passa a "
+        "ensinar um horário que não é o dela"
+    )
+    # ⭐ E afirma por COMPORTAMENTO, não por texto: pega a referência que o módulo realmente usa,
+    # roda contra o banco e exige que ela divirja do cadastro exatamente para quem tem vigência.
+    # Asserção de texto aqui seria burlável por um `coalesce` de enfeite; esta não é.
+    from modules.operacional.lembrete_ponto import _REF_ENTRADA  # noqa: PLC0415
+    with get_sync_db() as db:
+        conf = db.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE hv.entrada IS NOT NULL "
+                f"                         AND {_REF_ENTRADA} <> (sh.shift_date + sh.planned_start_time)) "
+                "         AS corrigidos_de_fato, "
+                "       count(*) FILTER (WHERE hv.entrada IS NULL "
+                f"                         AND {_REF_ENTRADA} <> (sh.shift_date + sh.planned_start_time)) "
+                "         AS mexeu_em_quem_nao_devia, "
+                "       count(*) FILTER (WHERE hv.entrada IS NOT NULL "
+                "                          AND hv.entrada <> sh.planned_start_time) AS deveria_corrigir "
+                f"  FROM shifts sh LEFT JOIN {TABELA} hv "  # noqa: S608 — constante do módulo
+                "         ON hv.employee_id = sh.employee_id "
+                "        AND hv.vigencia_inicio <= sh.shift_date "
+                "        AND (hv.vigencia_fim IS NULL OR hv.vigencia_fim >= sh.shift_date) "
+                " WHERE sh.shift_date = current_date"
+            )
+        ).mappings().first()
+    assert conf["mexeu_em_quem_nao_devia"] == 0, (
+        f"o lembrete mudou a hora de {conf['mexeu_em_quem_nao_devia']} turno(s) SEM vigência: a "
+        "correção vazou para quem não pediu, e essas pessoas passam a ser avisadas na hora errada"
+    )
+    assert conf["corrigidos_de_fato"] == conf["deveria_corrigir"], (
+        f"{conf['deveria_corrigir']} turno(s) têm horário corrigido à mão e o lembrete só aplicou "
+        f"em {conf['corrigidos_de_fato']}: o resto segue sendo avisado na hora do cadastro errado"
+    )
+    print(f"OK o LEMBRETE usa a vigência: {conf['corrigidos_de_fato']} de "
+          f"{conf['deveria_corrigir']} turno(s) avisados na hora corrigida, e "
+          f"{conf['mexeu_em_quem_nao_devia']} vazamento(s) para quem não tem vigência")
+
+    # 5 — comportamento contra o banco: quem tem vigência usa ela, quem não tem não muda.
     with get_sync_db() as db:
         r = db.execute(
             text(

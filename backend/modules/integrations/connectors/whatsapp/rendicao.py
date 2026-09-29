@@ -89,13 +89,24 @@ pessoas AS (
            BETWEEN (SELECT ini FROM lim) AND (SELECT ts FROM lim)
 )
 SELECT ps.posto, ps.nome, ps.papel, to_char(ps.marco, 'HH24:MI') AS hora,
-       (SELECT to_char(min(g.punch_timestamp), 'HH24:MI')
+       to_char(b.punch_timestamp, 'HH24:MI') AS bateu,
+       b.dentro_geofence,
+       round(b.distancia_posto_metros::numeric) AS metros
+  FROM pessoas ps
+  -- ⭐ 29/09/2026: LATERAL em vez de subconsulta escalar porque agora se precisa de TRÊS campos
+  -- da mesma batida, não só da hora. O motivo está no comentário de `marca`, em `verificar`:
+  -- «existe batida» não é «a pessoa está no posto». Equivale ao `min()` anterior (a mais antiga
+  -- da janela), então a hora reportada não mudou.
+  LEFT JOIN LATERAL (
+        SELECT g.punch_timestamp, g.dentro_geofence, g.distancia_posto_metros
           FROM gp_clock_punches g
          WHERE g.employee_id = ps.employee_id
            AND g.punch_type = ps.tipo
            AND g.punch_timestamp BETWEEN ps.marco - INTERVAL '2 hours'
-                                     AND ps.marco + INTERVAL '2 hours') AS bateu
-  FROM pessoas ps
+                                     AND ps.marco + INTERVAL '2 hours'
+         ORDER BY g.punch_timestamp
+         LIMIT 1
+  ) b ON TRUE
  ORDER BY ps.posto, ps.papel, ps.nome
 """
 
@@ -112,6 +123,20 @@ Um posto está GUARNECIDO se há alguém nele agora, mesmo que:
 
 ⚠️ AS BATIDAS JÁ VÊM APURADAS na lista abaixo — «saída BATIDA 18:00» ou «saída NÃO BATIDA». Não
 procure batida em ferramenta nenhuma: o que está escrito ali é o banco, lido agora.
+
+🔴 «⚠️ FORA DO POSTO (N m)» NA LINHA MUDA TUDO: a batida é real, mas a geolocalização diz que a
+pessoa estava a N metros do posto quando bateu. **Batida fora do posto NÃO é prova de que o posto
+está guarnecido** — nunca a use como evidência de cobertura.
+
+Em 29/09 você disse a um vigilante que a rendição dele já havia batido. Ela havia: a **4.959 m**
+do posto. Ele continuou lá, sozinho, 12h20 no total, e ainda foi cobrado por 18 minutos de
+atraso na saída — os mesmos 18 em que esperou a rendição que você declarou presente.
+
+Com essa marca, o posto é `descoberto` (se quem saía já bateu saída) ou `em_risco` (se não bateu)
+— e o `o_que` **tem de dizer a distância**, porque é o número que permite a um humano decidir se
+é GPS ruim de guarita, raio do posto cadastrado pequeno, ou pessoa que não está lá.
+
+⚠️ Sem a marca, não invente distância nem desconfiança: batida sem marca é batida boa.
 
 OS TRÊS BALDES, e o do meio é o mais estreito:
 
@@ -162,6 +187,21 @@ async def verificar(db: AsyncSession, *, janela_min: int = 15, publicar: bool = 
         rotulo = "SAI" if p["papel"] == "sai" else "ENTRA"
         tipo = "saída" if p["papel"] == "sai" else "entrada"
         marca = f"{tipo} BATIDA {p['bateu']}" if p["bateu"] else f"{tipo} NÃO BATIDA"
+        # 🔴 29/09/2026, e quem achou foi o MAURICIO, não uma trava. Ele estava no posto do Green
+        # Hills esperando rendição e o agente disse a ele que a rendição já havia batido. Ele
+        # respondeu: «como ela tá batendo o ponto se a mesma não tá no posto». A batida dela era
+        # real (rosto casou, confiança 0,895) e foi a **4.958,7 m do posto**.
+        #
+        # ⭐ A batida entrava aqui como «BATIDA 07:01» e mais nada. O Hermes lê exatamente esta
+        # linha — o prompt manda não procurar batida em ferramenta nenhuma — então ele concluiu
+        # posto guarnecido de forma impecável a partir de um dado incompleto. Não foi erro dele.
+        #
+        # A distância existia no banco desde sempre; só não chegava a quem decide. Agora chega.
+        # ⚠️ `is False` de propósito: geofence NULO é «não deu para medir», e isso NÃO pode virar
+        # acusação de que a pessoa não está no posto.
+        if p["bateu"] and p["dentro_geofence"] is False:
+            m = p["metros"]
+            marca += f" ⚠️ FORA DO POSTO ({int(m)} m)" if m is not None else " ⚠️ FORA DO POSTO"
         por_posto.setdefault(p["posto"], []).append(
             f"{rotulo} {p['nome']} ({p['hora']}) — {marca}")
     linhas = "\n".join(f"· {posto}:\n    " + "\n    ".join(itens)
