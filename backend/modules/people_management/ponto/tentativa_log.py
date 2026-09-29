@@ -51,7 +51,20 @@ _SQL = text(
     "  source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module, "
     "  context_ip, context_user_agent, context_device_type, context_geolocation, "
     "  related_funcionario_id, extra_data) "
-    "VALUES (:id, now(), 'ponto.tentativa_falhou', 'gp_clock_punches', :eid, :desc, "
+    # 🔴 `now()` CRU GRAVAVA EM UTC — 4 HORAS ADIANTADO (medido em 29/09/2026).
+    #
+    # `gp_audit_logs.timestamp` é `timestamp WITHOUT time zone`, e a sessão do aplicativo roda
+    # em UTC: `now()::timestamp` gravava 20:06 enquanto em Manaus eram 16:06. Medido no mesmo
+    # dia, o resto da casa grava em MANAUS — `ponto.foto_vista` (943 linhas), `pesquisa_resposta`,
+    # `kit.vinculos_removidos`, `ponto.batida_retipada`. Só esta ação estava fora.
+    #
+    # ⭐ O custo é exatamente o propósito desta tabela: a falha que a TELMA teve às 07:00 ficava
+    # arquivada às 11:00. Quem investigasse «o que aconteceu às 7 da manhã» não acharia nada —
+    # um registro de falha com hora errada é quase tão ruim quanto não ter registro.
+    #
+    # ⚠️ E ele me enganou na hora de ler: vi 17:00 num log e pensei «está no futuro».
+    "VALUES (:id, (now() AT TIME ZONE 'America/Manaus'), 'ponto.tentativa_falhou', "
+    "  'gp_clock_punches', :eid, :desc, "
     "  'people_management.ponto', :uid, :unome, 'funcionario', 'ponto', "
     "  :ip, :ua, :dev, CAST(:geo AS jsonb), :eid, CAST(:extra AS jsonb))"
 )
