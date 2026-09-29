@@ -112,7 +112,7 @@ def _sem_acento(s: str) -> str:
 class GuiaParseada:
     """Resultado do parse de um PDF do pacote."""
 
-    tipo: str  # FGTS | FGTS_CONSIGNADO | INSS | DAS | ISS | DCTFWEB_DECLARACAO | DCTFWEB_RECIBO | ANEXO | nao_classificado
+    tipo: str  # FGTS | FGTS_CONSIGNADO | INSS | DAS | ISS | DCTFWEB_DECLARACAO | DCTFWEB_RECIBO | PGDASD_DECLARACAO | ANEXO | nao_classificado
     competencia_mes: int | None = None
     competencia_ano: int | None = None
     valor: float | None = None
@@ -228,6 +228,66 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
             valor=total,
             numero_documento=num,
             detalhe={"relatorio": "GFD", "tomadores": sorted(set(tomadores))},
+        )
+
+    # ── PGDAS-D: DECLARAÇÃO COMPLETA — é o único documento que traz o RBT12 ──
+    # O RECIBO do PGDAS-D (que já tínhamos no Onvio) só traz a receita do mês. O RBT12, que
+    # define a faixa e a alíquota, está na DECLARAÇÃO. Sem ele, metade da cotação usava
+    # tabela genérica — e não se estima: a dedução pela alíquota do DAS não bate, porque
+    # empresa em início de atividade é tributada pelo RBT12 PROPORCIONALIZADO (RBT12p), não
+    # pelo RBT12 cru. Medido em 29/09/2026 na Patrimonial (abertura 31/03/2026):
+    #   RBT12 443.381,11 · RBT12p 1.064.114,66 → Anexo IV 4ª faixa (14% − 39.780)
+    #   → efetiva 10,2617%, idêntica ao DAS do segmento sem retenção (15.779,86/153.774,64).
+    # Layout (pymupdf): rótulo e valores em blocos separados; os 3 números após cada rótulo
+    # são mercado interno, externo e total — ficamos com o TOTAL.
+    # ⚠️ O PDF NÃO contém a sigla «PGDAS-D»: escreve «Programa Gerador do Documento de
+    # Arrecadação do Simples Nacional - Declaratório». Casar pela sigla deixava o documento
+    # cair no ramo do DAS logo abaixo, que reconhece «Documento de Arrecadação do Simples
+    # Nacional» — o cabeçalho da própria declaração. Casa-se pelo que é único dela.
+    if "Discriminativo de Receitas" in texto and "RBT12" in texto:
+        # A competência vem como «Período de Apuração: 01/08/2026 a 31/08/2026» (dia/mês/ano).
+        # O `_competencia` genérico pegava «03/2026» da lista de receitas anteriores e
+        # etiquetava TODAS as declarações como março.
+        _pa = re.search(r"Per[ií]odo de Apura[cç][aã]o:\s*\n?\s*\d{2}/(\d{2})/(\d{4})", texto)
+        if _pa:
+            mes, ano = int(_pa.group(1)), int(_pa.group(2))
+
+        def _tres(rotulo: str) -> float | None:
+            i = texto.find(rotulo)
+            if i < 0:
+                return None
+            nums = re.findall(_VAL, texto[i + len(rotulo) : i + len(rotulo) + 260])
+            return _dec(nums[2]) if len(nums) >= 3 else (_dec(nums[0]) if nums else None)
+
+        n_decl = (re.search(r"N[ºo°] da Declara[cç][aã]o:\s*\n?\s*(\d+)", texto) or [None, None])[1]
+        recibo = (re.search(r"N[úu]mero do Recibo:\s*\n?\s*([\d.\-]+)", texto) or [None, None])[1]
+        transm = (re.search(r"(\d{2}/\d{2}/\d{4}) \d{2}:\d{2}:\d{2}", texto) or [None, None])[1]
+        anexos = sorted({m.upper() for m in re.findall(r"Anexo ([IVX]+)", texto)})
+        abertura = _data_br((re.search(r"abertura no CNPJ:\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        return GuiaParseada(
+            empresa_id=_emp,
+            tipo="PGDASD_DECLARACAO",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=_tres("Valor Total do Débito Declarado (R$)"),
+            numero_recibo=recibo,
+            numero_documento=n_decl,
+            detalhe={
+                "transmissao": transm,
+                "rpa": _tres("Receita Bruta do PA (RPA) - Competência"),
+                "rbt12": _tres("ao PA (RBT12)"),
+                "rbt12p": _tres("ao PA proporcionalizada (RBT12p)"),
+                "rba": _tres("(RBA)"),
+                "anexos": anexos,
+                "abertura": abertura.isoformat() if abertura else None,
+                # O proporcionalizado (RBT12p) só vale enquanto a empresa está nos 12 primeiros
+                # meses. Para empresa madura quem manda é o RBT12 cru — e usar o p nela erra a
+                # faixa para CIMA: medido na Eletrônica de 11/2025, 14,72% contra 15,19% reais.
+                "inicio_de_atividade": bool(
+                    abertura and mes and ano and (ano * 12 + mes) - (abertura.year * 12 + abertura.month) < 12
+                ),
+                "retificadora": "Declaração Retificadora" in texto,
+            },
         )
 
     # ── DCTFWeb: RECIBO DE ENTREGA — débito apurado e saldo a pagar POR TRIBUTO ──
@@ -592,6 +652,109 @@ def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> l
 
 
 # Donos do fiscal que recebem o sino (Jordan + Pyetra) — ver [[project_financeiro_auditoria_organizacao]]
+#: Anexo IV do Simples: (teto do RBT12, alíquota, dedução). A CPP patronal fica FORA do DAS
+#: neste anexo — por isso `INSS/CPP = 0,00` na declaração é o correto, não um defeito.
+#: Extrai a competência já registrada do próprio `fonte_regime` (marcador `pgdasd_comp:`).
+_re_comp = re.compile(r"pgdasd_comp:(\d{4}-\d{2})")
+
+_FAIXAS_ANEXO_IV = (
+    (180_000.00, 0.0450, 0.00),
+    (360_000.00, 0.0900, 8_100.00),
+    (720_000.00, 0.1020, 12_420.00),
+    (1_800_000.00, 0.1400, 39_780.00),
+    (3_600_000.00, 0.2200, 183_780.00),
+    (4_800_000.00, 0.3300, 828_000.00),
+)
+
+
+def aplicar_declaracao_pgdasd(db, g: GuiaParseada, meta: dict[str, Any]) -> dict[str, Any]:
+    """Declaração do PGDAS-D → `empresas.rbt12` com a PROVA de onde o número veio.
+
+    O que sai daqui alimenta a cotação (`crm/services/regime_tributario.resolver`), que antes
+    caía em tabela genérica e avisava. Três decisões, e cada uma tem motivo medido:
+
+      • grava o **RBT12p** só enquanto a empresa está nos 12 primeiros meses; depois disso,
+        o **RBT12** cru. Usar o proporcionalizado numa empresa madura erra a faixa para cima
+        (Eletrônica 11/2025: daria 14,72% onde o DAS praticou 15,19%), e usar o cru numa
+        empresa nova erra para baixo. A data de abertura sai da própria declaração.
+      • só avança para competência MAIS NOVA que a já registrada — o puxador varre meses
+        antigos e não pode fazer o cadastro andar para trás.
+      • **não troca o anexo em silêncio.** O anexo está escrito na declaração e já esteve
+        errado no cadastro (III onde era IV, precificando 23 pontos abaixo do custo). Mas
+        trocar calado é como ele entrou errado: divergência vira aviso no retorno e a decisão
+        fica com quem lê.
+    """
+    d = g.detalhe or {}
+    # Base da faixa: proporcionalizado SÓ no início de atividade (12 primeiros meses).
+    rbt = (d.get("rbt12p") if d.get("inicio_de_atividade") else d.get("rbt12")) or d.get("rbt12")
+    if not (g.competencia_mes and g.competencia_ano):
+        return {"arquivo": meta.get("nome"), "motivo": "sem competência"}
+    if not rbt:
+        return {"arquivo": meta.get("nome"), "motivo": "declaração sem RBT12"}
+    emp = g.empresa_id or EMPRESA_PRINCIPAL
+    row = db.execute(
+        _sql(
+            "SELECT anexo_simples, rbt12::float, coalesce(fonte_regime,'')   FROM empresas WHERE id = CAST(:e AS uuid)"
+        ),
+        {"e": emp},
+    ).first()
+    anexo_doc = (d.get("anexos") or [None])[-1]
+    avisos = []
+    if anexo_doc and row and (row[0] or "").upper() != anexo_doc:
+        avisos.append(f"anexo do cadastro ({row[0] or 'vazio'}) difere do declarado ({anexo_doc}) — NÃO troquei")
+
+    comp = f"{g.competencia_mes:02d}/{g.competencia_ano}"
+    comp_iso = f"{g.competencia_ano}-{g.competencia_mes:02d}"
+    marca = f"pgdasd_comp:{comp_iso}"
+    # A competência já registrada sai do PRÓPRIO marcador, não de `regime_atualizado_em` —
+    # essa coluna diz QUANDO atualizamos, não DE QUE MÊS é o número. Comparar as duas fazia
+    # a declaração de 08/2026 ser recusada como «anterior» por ter sido lida em 29/09.
+    m_atual = _re_comp.search(row[2] if row else "")
+    registrada = m_atual.group(1) if m_atual else ""
+    if registrada == comp_iso:
+        return {"arquivo": meta.get("nome"), "competencia": comp, "acao": "ja_aplicada", "rbt12": rbt}
+    if registrada > comp_iso:
+        return {
+            "arquivo": meta.get("nome"),
+            "competencia": comp,
+            "acao": "competencia_anterior",
+            "registrada": registrada,
+            "rbt12": rbt,
+        }
+
+    efetiva = None
+    if (anexo_doc or (row[0] if row else "")) == "IV":
+        for teto, aliq, ded in _FAIXAS_ANEXO_IV:
+            if rbt <= teto:
+                efetiva = round((rbt * aliq - ded) / rbt, 6)
+                break
+    fonte = (
+        f"PGDAS-D {comp} declaração {g.numero_documento or '?'}, recibo {g.numero_recibo or '?'}"
+        f"{', retificadora' if d.get('retificadora') else ''}, transmitida {d.get('transmissao')}: "
+        f"RBT12={d.get('rbt12')} · RBT12p={d.get('rbt12p')} · receita do mês={d.get('rpa')}"
+        + (f" · efetiva {efetiva * 100:.4f}%" if efetiva else "")
+        + f" · {marca}"
+    )
+    db.execute(
+        _sql(
+            "UPDATE empresas SET rbt12 = :r, fonte_regime = :f, regime_atualizado_em = CURRENT_DATE, "
+            "updated_at = NOW() WHERE id = CAST(:e AS uuid)"
+        ),
+        {"r": rbt, "f": fonte[:1200], "e": emp},
+    )
+    return {
+        "arquivo": meta.get("nome"),
+        "competencia": comp,
+        "acao": "gravada",
+        "rbt12": d.get("rbt12"),
+        "rbt12p": d.get("rbt12p"),
+        "usado": rbt,
+        "efetiva": efetiva,
+        "anexo_declarado": anexo_doc,
+        "avisos": avisos,
+    }
+
+
 _TRIBUTOS_INSS = (
     "Contribuição Previdenciária Segurados",
     "Contribuição Previdenciária Patronal",
@@ -858,6 +1021,8 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
                 rel["acessorias_cumpridas"].append({"arquivo": nome, "recibo": g.numero_recibo, "marcadas": marcadas})
             elif g.tipo == "DCTFWEB_RECIBO":
                 rel["acessorias_cumpridas"].append(aplicar_recibo_dctfweb(db, g, meta))
+            elif g.tipo == "PGDASD_DECLARACAO":
+                rel.setdefault("pgdasd", []).append(aplicar_declaracao_pgdasd(db, g, meta))
             elif g.tipo == "ANEXO":
                 rel["anexos"].append(
                     {"arquivo": nome, "relatorio": g.detalhe.get("relatorio"), "tomadores": g.detalhe.get("tomadores")}
@@ -969,6 +1134,8 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False, dias: int
                 rel["acessorias"] += _marcar_acessorias_cumpridas(db, g, meta)
             elif g.tipo == "DCTFWEB_RECIBO":
                 rel.setdefault("recibos_dctfweb", []).append(aplicar_recibo_dctfweb(db, g, meta))
+            elif g.tipo == "PGDASD_DECLARACAO":
+                rel.setdefault("pgdasd", []).append(aplicar_declaracao_pgdasd(db, g, meta))
             else:
                 rel["nao_classificados"].append(nome)
             db.commit()
