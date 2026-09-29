@@ -78,6 +78,27 @@ fato*. Bloquear troca um problema por um pior.
    uma queda grande demais para ser comportamento; pode ser raio corrigido no meio do caminho. Sem
    isso, parte das 238 pode ser cerca errada, não batida errada.
 
+## O desfecho do dia, e ele fecha o argumento
+
+Às 07:18:41 o MAURICIO bateu a saída. Ficou **12h20 no posto**, e o dado prova:
+
+| quem | batidas | distância do posto |
+|---|---|---|
+| **MAURICIO** | 28/09 **18:58:16** entrada · 29/09 **07:18:41** saída | **12 m** e **16 m** — DENTRO |
+| **THAYNA** (a rendição dele) | 29/09 **07:01:07** entrada | **4.959 m** — FORA |
+
+E o sistema pediu ao MAURICIO que **justificasse 18 minutos de atraso** — os mesmos 18 minutos em
+que ele esperou no posto a rendição que o sistema já tinha declarado presente. A justificativa caiu
+em `gp_justifications` como `saida_fora_horario`, **pendente, com o motivo VAZIO**.
+
+⭐ Em uma linha: **quem estava comprovadamente no posto é cobrado; a batida a cinco quilômetros não
+gera apontamento nenhum.** É o mesmo padrão da TELMA em 28/09, cobrada por um atraso que a queda do
+próprio sistema causou.
+
+⚠️ E o motivo vazio é o problema já conhecido dos 50%: a linha chega à mesa da Pyetra sem história
+nenhuma para ela decidir. Quem vai julgar esses 18 minutos não tem, no registro, a informação de
+que a rendição bateu de fora do posto.
+
 ## A lição sobre mim
 
 Eu relatei «a Thayna bateu, o caso fecha» olhando só a existência da linha. A pergunta que faltou
