@@ -15,7 +15,7 @@
  *  - Benefícios(GET /portal/self-service/meus-beneficios)
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { msgFromDetail } from '@/lib/string';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -1150,6 +1150,43 @@ function PontoTab() {
       });
     } catch { /* silencioso de proposito */ }
   };
+
+  /**
+   * 🔴 O SENSOR QUE FALTAVA — «o aplicativo fica rodando direto» (TELMA, 29/09/2026).
+   *
+   * Ela relatou isso em 12/09, 24/09, 28/09 e 29/09 — QUATRO dias. Medido no banco: dos dez
+   * registros dela em `gp_audit_logs`, **todos são `ponto.pesquisa_resposta`** (a pesquisa que um
+   * humano conduz) e **ZERO são `ponto.tentativa_falhou`**. Em 24/09 ela reclamou quatro vezes e
+   * o log técnico não tem uma linha.
+   *
+   * ⭐ Por quê: `registrarFalha` cobria `camera_sem_quadro`, `camera_nao_abriu`, `gps_negado`,
+   * `cadastro_indisponivel` e (desde 28/09) a falha do ENVIO. A dela trava ANTES de todos —
+   * a `fase` entra em `gps`/`facial`/`sending` e nunca volta para `idle`. Instrumentei as falhas
+   * que eu conseguia imaginar, e a real acontece mais cedo que todas elas.
+   *
+   * Por quatro dias o ÚNICO sensor foi uma pessoa insistindo no WhatsApp. Este relógio troca isso
+   * por telemetria: se a fase não voltar a `idle` em 45s, registra `app_travou_<fase>` — e o nome
+   * da FASE é o que torna o registro acionável, porque «travou» sozinho não diz onde.
+   *
+   * ⚠️ 45s de propósito: um facial lento legítimo leva alguns segundos, e ninguém espera 45
+   * segundos achando que está funcionando. Dispara UMA vez por episódio (o `avisado` da ref),
+   * senão a guarita gera uma linha a cada segundo e o sinal vira ruído.
+   */
+  const travouRef = useRef<{ fase: string; avisado: boolean } | null>(null);
+  useEffect(() => {
+    if (fase === 'idle') { travouRef.current = null; return; }
+    travouRef.current = { fase, avisado: false };
+    const t = setTimeout(() => {
+      const atual = travouRef.current;
+      if (!atual || atual.fase !== fase || atual.avisado) return;
+      atual.avisado = true;
+      void registrarFalha(`app_travou_${fase}`, {
+        detalhe: `a tela ficou na fase «${fase}» por mais de 45s sem concluir nem falhar — `
+          + `é o «fica rodando direto» que as pessoas relatam`,
+      });
+    }, 45_000);
+    return () => clearTimeout(t);
+  }, [fase]);
 
   /**
    * frente 02 — guarda a batida no aparelho quando não há sinal. Ela NÃO é uma batida válida: sobe
