@@ -117,6 +117,47 @@ def _pontos(d: dict) -> str:
     return " ".join(partes)
 
 
+def _calendario(esp: dict) -> list[str]:
+    """Todos os dias ISO do período IMPRESSO — não só os que têm batida medida.
+
+    🔴 28/09/2026, decisão do Jordan («2»). Medido em agosto/2026: das **3.420 batidas do mês,
+    só 1.390 são MEDIÇÃO** (41%). O resto é grade de escala — o Tangerino traz 65% das batidas
+    em hora cheia e o `web` tem **4 horários distintos para 414 batidas** — e `FONTES_MEDIDAS`
+    corretamente não conta isso. Consequência: os 68 espelhos de agosto têm média de **9,2 dias**
+    num mês de 31, e a tabela deste PDF, que percorria só `dias`, saía com 9 linhas.
+
+    ⭐ Folha de ponto de cliente com dois terços do mês AUSENTE não é folha incompleta, é folha
+    que esconde. O calendário aqui faz o dia existir na página; quem não tem marcação sai
+    rotulado «Sem registro eletrônico», com a grade ao lado como referência. O leitor vê que
+    houve cobertura E que a marcação não existe — as duas coisas, nenhuma inventada.
+
+    A janela sai de `periodo_de`/`periodo_ate` quando o chamador manda (a folha do kit é 26→25);
+    senão, mês civil da competência. Nunca deriva de `dias`: lista rala daria janela rala, que é
+    exatamente o defeito.
+    """
+    from calendar import monthrange
+    from datetime import date as _d
+    from datetime import timedelta as _td
+
+    de = esp.get("periodo_de") or esp.get("de")
+    ate = esp.get("periodo_ate") or esp.get("ate")
+    try:
+        if de and ate:
+            d0, d1 = _d.fromisoformat(str(de)[:10]), _d.fromisoformat(str(ate)[:10])
+        else:
+            mes = int(esp.get("mes") or esp.get("reference_month") or 0)
+            ano = int(esp.get("ano") or esp.get("reference_year") or 0)
+            if not (0 < mes < 13 and ano > 2000):
+                return []
+            d0 = _d(ano, mes, 1)
+            d1 = _d(ano, mes, monthrange(ano, mes)[1])
+    except (TypeError, ValueError):
+        return []
+    if d1 < d0 or (d1 - d0).days > 400:
+        return []  # janela absurda: melhor cair no comportamento antigo que imprimir 4 anos
+    return [(d0 + _td(days=i)).isoformat() for i in range((d1 - d0).days + 1)]
+
+
 def _abono(d: dict) -> str:
     """ABONO do dia — em branco quando não há justificativa aprovada (o normal hoje).
 
@@ -226,7 +267,9 @@ def _titulo(txt: str, st: dict):
     return t
 
 
-def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> bytes:
+def montar_espelho_ponto_pdf(
+    esp: dict, *, signatarios: list | None = None, grade: dict[str, str] | None = None
+) -> bytes:
     """Gera o PDF do espelho de ponto a partir do dict lido de `time_sheets`.
 
     `esp` traz os campos do time_sheet (já em horas formatadas ou minutos) + a lista
@@ -350,8 +393,23 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
         _cell("Saldo", bold=True, cor=colors.white, center=True),
         _cell("Ocorrência", bold=True, cor=colors.white),
     ]
+    # 28/09/2026 («2» do Jordan) — o calendário do período manda, não a lista de dias medidos.
+    # `por_data` indexa o que o motor apurou; o dia que não estiver lá sai rotulado «Sem registro
+    # eletrônico» com a grade ao lado. Se o calendário não puder ser derivado (competência
+    # ausente, janela absurda), cai no comportamento antigo — degradar é melhor que não imprimir.
+    por_data = {str(x.get("date") or x.get("data") or "")[:10]: x for x in dias}
+    cal = _calendario(esp)
+    grade = grade or {}
+    n_sem_registro = 0
+    percorrer: list[dict] = (
+        [por_data.get(iso) or {"date": iso, "_sem_registro": True} for iso in cal] if cal else list(dias)
+    )
+
     linhas = [head]
-    for d in dias:
+    for d in percorrer:
+        sem_registro = bool(d.get("_sem_registro"))
+        if sem_registro:
+            n_sem_registro += 1
         data = d.get("date") or d.get("data") or ""
         # data 'YYYY-MM-DD' → 'DD/MM'
         dia_semana = ""
@@ -364,16 +422,28 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
             dia_semana = _DOW[dt.weekday()]
         except Exception:  # noqa: BLE001
             pass
+        # A grade NUNCA entra na coluna como se fosse marcação: vai entre parênteses, precedida
+        # de «ref.», e o rótulo da ocorrência diz que registro eletrônico não houve. Horário de
+        # escala impresso como se fosse batida é a fabricação que esta casa proíbe.
+        if sem_registro:
+            ref = str(grade.get(str(data)[:10]) or "").strip()
+            col_pontos = f"(ref. {ref})" if ref else "—"
+        else:
+            col_pontos = _pontos(d)
         linhas.append(
             [
                 _cell(data_fmt, size=7.5),
                 _cell(dia_semana, center=True, size=7.5),
-                _cell(_pontos(d), center=True, size=7),
+                _cell(col_pontos, center=True, size=7, cor=colors.HexColor("#94A3B8") if sem_registro else None),
                 _cell(_dur(d.get("worked") if d.get("worked") is not None else d.get("horas")), center=True, size=7.5),
                 _cell(_dur(d.get("expected")) if d.get("expected") is not None else "—", center=True, size=7.5),
                 _cell(_abono(d), center=True, size=7.5),
                 _cell(_saldo_dia(d), center=True, size=7.5),
-                _cell(_ocorrencia(d), size=7.5),
+                _cell(
+                    "Sem registro eletrônico" if sem_registro else _ocorrencia(d),
+                    size=7.5,
+                    cor=colors.HexColor("#B45309") if sem_registro else None,
+                ),
             ]
         )
     if len(linhas) == 1:
@@ -403,6 +473,22 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
     t_dias.setStyle(TableStyle(estilo))
     story.append(_titulo("REGISTRO DIÁRIO DE JORNADA", st))
     story.append(t_dias)
+    # Sem esta nota, «Sem registro eletrônico» é lido como FALTA — e falta é o contrário do que o
+    # rótulo diz. Ela só aparece quando existe o caso, para não virar ruído em folha completa.
+    if n_sem_registro:
+        story.append(Spacer(1, 1.2 * mm))
+        story.append(
+            Paragraph(
+                f"<font size=6.5 color='#B45309'>Dos {len(percorrer)} dias do período, "
+                f"<b>{n_sem_registro}</b> constam <b>sem registro eletrônico de ponto</b>: não houve "
+                f"marcação individual capturada pelo aplicativo. Isso <b>não</b> significa ausência "
+                f"do posto — onde há escala publicada, o horário previsto aparece na coluna de "
+                f"pontos entre parênteses, precedido de «ref.», apenas como referência. "
+                f"Horário de escala não é marcação de ponto e não foi computado nas horas "
+                f"trabalhadas deste espelho.</font>",
+                st["small"],
+            )
+        )
     story.append(Spacer(1, 2.5 * mm))
 
     # ── TOTAIS DO PERÍODO ──
