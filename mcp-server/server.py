@@ -1543,6 +1543,7 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                     "mensagem": f"Modalidade {modalidade!r} não existe.",
                     "dica": "Use uma de: " + ", ".join(sorted(MODALIDADES))}
         cliente = None
+        falha_busca = None
         alvo_doc = re.sub(r"\D", "", cliente_documento or "")
         try:
             # ⚠️ o cadastro guarda o CNPJ em `cnpj`, não em `document_number` — a primeira
@@ -1555,8 +1556,24 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                 if doc and doc == alvo_doc:
                     cliente = c.get("name")
                     break
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Era `pass`, e a falha de consulta caía no MESMO `cliente = None` do "não
+            # existe": o ensaio mandava cadastrar de novo um cliente que talvez já esteja
+            # lá — o erro que o comentário acima existe justamente para evitar. Consulta
+            # que não aconteceu não é resposta negativa.
+            falha_busca = f"{type(exc).__name__}: {str(exc)[:120]}"
+
+        if cliente:
+            achado = cliente
+            aviso = "Nada foi gravado. Chame de novo sem dry_run para criar."
+        elif falha_busca:
+            achado = f"NÃO CONSULTEI o CNPJ {cliente_documento} — a busca no CRM falhou"
+            aviso = (f"NÃO SEI se o cliente está no CRM: a consulta falhou ({falha_busca}). "
+                     f"Não conclua que ele falta; repita o ensaio antes de cadastrar.")
+        else:
+            achado = f"NÃO ACHEI o CNPJ {cliente_documento}"
+            aviso = "Cliente não está no CRM — a criação seria RECUSADA. Cadastre antes."
+
         return {"ok": True, "dry_run": True, "gravou": False,
                 "natureza": info[2],
                 "resumo": (f"Criaria um contrato {tipo_emp[0]} de {_brl(valor)} "
@@ -1564,13 +1581,11 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                            if unico else
                            f"Criaria um contrato {tipo_emp[0]} de {_brl(valor)}/mês "
                            f"pela {tipo_emp[1]}, com vigência de {vigencia_meses} meses."),
-                "cliente_encontrado": cliente or f"NÃO ACHEI o CNPJ {cliente_documento}",
+                "cliente_encontrado": achado,
                 "modelo": tipo_emp[0], "emitente": tipo_emp[1],
                 ("valor_total" if unico else "valor_mensal"): valor,
                 "vigencia_inicio": vigencia_inicio,
-                "aviso": ("Cliente não está no CRM — a criação seria RECUSADA. Cadastre antes."
-                          if not cliente else
-                          "Nada foi gravado. Chame de novo sem dry_run para criar."),
+                "aviso": aviso,
                 "proximo_passo": "criar_contrato_por_modelo(..., idempotency_key='algo-unico')"}
     corpo: dict[str, Any] = {
         "cliente_documento": cliente_documento, "modalidade": modalidade,
@@ -2795,7 +2810,6 @@ async def enviar_whatsapp(numero: str, mensagem: str, confirmar: bool = False) -
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "para": numero, "mensagem": mensagem,
-                "mensagem": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar.",  # noqa: F601
                 "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar."}
     r = await erp.post("/whatsapp/send/custom", json={"phone": numero, "message": mensagem})
@@ -5153,19 +5167,46 @@ class _BearerASGI:
 
     def __init__(self, app, token: str):
         # FAIL-CLOSED, simétrico ao modo google: sem token não há o que comparar em
-        # `__call__`, e o conector responderia 200 a qualquer um com todo o catálogo de ferramentas do
-        # ERP atrás. Serviço sem autenticação não sobe.
+        # `__call__`, e o conector responderia 200 a qualquer um com todo o catálogo de
+        # ferramentas do ERP atrás. Serviço sem autenticação não sobe.
         if len(token) < _TOKEN_MIN:
             raise RuntimeError(
                 f"AUTH_MODE={AUTH_MODE} exige MCP_AUTH_TOKEN com no mínimo {_TOKEN_MIN} "
                 f"caracteres (recebido: {len(token)}). Sem ele a auth de entrada não existe "
-                f"e todo o catálogo de ferramentas do ERP ficam abertas. Gere com "
+                f"e todo o catálogo de ferramentas do ERP fica aberto. Gere com "
                 "`python -c 'import secrets; print(secrets.token_hex(32))'`, ou use "
                 "AUTH_MODE=google.")
         self.app = app
         self.token = token
         #: Cabeçalho esperado em bytes: compara sem decodificar (header cru pode não ser UTF-8).
         self._esperado = f"Bearer {token}".encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            if scope.get("path") != "/healthz":
+                headers = dict(scope.get("headers") or [])
+                # Tempo constante: `!=` devolve na primeira divergência e o tempo de
+                # resposta entrega o prefixo certo, byte a byte, com amostragem suficiente.
+                if not secrets.compare_digest(headers.get(b"authorization", b""), self._esperado):
+                    await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
+class _TetoASGI:
+    """Teto de requisições por minuto (pura ASGI). Vale nos DOIS modos de autenticação.
+
+    Middleware próprio, e não um método do `_BearerASGI`, porque em `AUTH_MODE=google`
+    aquele não entra na cadeia: o conector exposto na internet era o único sem teto.
+
+    Em modo bearer entra POR DENTRO da auth, então só requisição autenticada consome
+    cota — inundação anônima não tranca quem tem o token. Em modo google a verificação
+    OAuth acontece mais fundo, dentro do FastMCP, então ali o teto conta também o que
+    chega sem credencial; para um conector na internet aberta esse é o lado certo do erro.
+    """
+
+    def __init__(self, app):
+        self.app = app
         self._janela: float = 0.0
         self._contador: int = 0
 
@@ -5179,34 +5220,28 @@ class _BearerASGI:
         return self._contador > _RPM
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            if scope.get("path") != "/healthz":
-                headers = dict(scope.get("headers") or [])
-                # Tempo constante: `!=` devolve na primeira divergência e o tempo de
-                # resposta entrega o prefixo certo, byte a byte, com amostragem suficiente.
-                if not secrets.compare_digest(headers.get(b"authorization", b""), self._esperado):
-                    await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
-                    return
-                if _RPM > 0 and self._estourou():
-                    # `logger` nunca existiu neste módulo: o teto estourado levantava
-                    # NameError e o cliente recebia 500 do uvicorn em vez do 429. O arquivo
-                    # registra por print/flush — é o que o docker logs mostra.
-                    print(
-                        f"[mcp] teto de {_RPM} req/min estourado ({self._contador} em 60s) — "
-                        f"recusando. Volume assim é varredura, não uso.", flush=True)
-                    await JSONResponse(
-                        {"error": "rate_limited",
-                         "detail": f"Teto de {_RPM} requisições por minuto."},
-                        status_code=429)(scope, receive, send)
-                    return
+        # `/healthz` fica fora da conta: é o healthcheck do compose, de 30 em 30s, e um 429
+        # ali marcaria o container unhealthy por tráfego que chegou em outra rota.
+        if (scope["type"] == "http" and _RPM > 0
+                and scope.get("path") != "/healthz" and self._estourou()):
+            print(
+                f"[mcp] teto de {_RPM} req/min estourado ({self._contador} em 60s) — "
+                f"recusando. Volume assim é varredura, não uso.", flush=True)
+            await JSONResponse(
+                {"error": "rate_limited",
+                 "detail": f"Teto de {_RPM} requisições por minuto."},
+                status_code=429)(scope, receive, send)
+            return
         await self.app(scope, receive, send)
 
 
 if AUTH_MODE == "google":
-    # FastMCP + GoogleProvider já protegem o /mcp (OAuth). Não envolve no Bearer.
-    app = _base
+    # FastMCP + GoogleProvider já protegem o /mcp (OAuth). Não envolve no Bearer — mas o
+    # teto vale igual: este é o único conector publicado na internet.
+    app = _TetoASGI(_base)
 else:
-    app = _BearerASGI(_base, MCP_AUTH_TOKEN)
+    # Auth POR FORA do teto: só requisição autenticada consome cota.
+    app = _BearerASGI(_TetoASGI(_base), MCP_AUTH_TOKEN)
 
 
 # ── Descoberta e saúde ────────────────────────────────────────────────────────────────
@@ -5318,8 +5353,14 @@ def _lgpd_sensiveis() -> dict:
     """Toda ferramenta `sensivel`, com e sem concessão. Visível sem precisar do domínio."""
     try:
         import lgpd_escopo as _L  # noqa: PLC0415
-    except Exception:  # noqa: BLE001
-        return {}
+    except Exception as exc:  # noqa: BLE001
+        # FALHA FECHADA: `{}` fazia o `capabilities` parecer um catálogo sem nenhuma
+        # ferramenta sensível — exatamente a leitura errada. Diz que não sabe.
+        return {"lgpd_atencao": "indeterminado",
+                "lgpd_aviso": (
+                    f"NÃO consegui carregar a classificação de LGPD ({type(exc).__name__}: "
+                    f"{str(exc)[:120]}). Lista vazia aqui NÃO significa catálogo sem dado "
+                    f"pessoal: significa que a avaliação não rodou.")}
     sens = sorted(n for n, v in _L.NIVEL.items() if v == _L.SENSIVEL)
     return {
         "total": len(sens),
@@ -5434,8 +5475,17 @@ async def conecta_pro_capabilities(dominio: str = "", tool: str = "") -> dict:
                     f"SENSÍVEL: {', '.join(sensiveis)}. Cada acesso fica registrado."
                 )
             return saida
-        except Exception:  # noqa: BLE001
-            return {"ok": True, "dominio": dominio, **d}
+        except Exception as exc:  # noqa: BLE001
+            # FALHA FECHADA no aviso: antes o campo era OMITIDO, e ausência de
+            # `lgpd_atencao` significa "este fluxo não toca dado sensível". Uma
+            # classificação que falhou passava por fluxo limpo. Agora diz que não sabe.
+            return {"ok": True, "dominio": dominio, **d,
+                    "lgpd_atencao": "indeterminado",
+                    "lgpd_aviso": (
+                        f"NÃO consegui classificar este fluxo ({type(exc).__name__}: "
+                        f"{str(exc)[:120]}). Trate como se tocasse dado pessoal SENSÍVEL "
+                        f"até alguém conferir: aqui a ausência de aviso significa fluxo "
+                        f"limpo, e este não foi avaliado.")}
     return {"ok": True, "versao_mcp": VERSAO_MCP,
             "dominios": {k: v["resumo"] for k, v in _MAPA.items()},
             # ⭐ As SENSÍVEIS na raiz, não só no `fluxo`. Validação do Cowork (12/09/2026):

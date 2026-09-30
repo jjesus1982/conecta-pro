@@ -109,6 +109,66 @@ def test_healthz_continua_aberto() -> None:
     print("OK /healthz segue aberto para o healthcheck")
 
 
+def _resposta_teto(guarda, caminho: str = "/mcp") -> int:
+    """Uma passada pelo `_TetoASGI`. Devolve o status, ou 0 se passou adiante."""
+    passou: list[bool] = []
+
+    async def app_interna(scope, receive, send):  # noqa: ANN001, ARG001
+        passou.append(True)
+
+    enviados: list[dict] = []
+
+    async def send(msg):  # noqa: ANN001
+        enviados.append(msg)
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    guarda.app = app_interna
+    scope = {"type": "http", "path": caminho, "headers": [], "method": "POST"}
+    asyncio.run(guarda(scope, receive, send))
+    if passou:
+        return 0
+    return next(m["status"] for m in enviados if m["type"] == "http.response.start")
+
+
+def test_teto_entra_na_cadeia_nos_dois_modos() -> None:
+    """A razão de o teto ser middleware próprio: em `AUTH_MODE=google` o `_BearerASGI` não
+    entra na cadeia, e o teto morava dentro dele — o conector publicado na internet era o
+    único sem limite. Esta prova é de FONTE porque as duas pernas do `if` não coexistem no
+    mesmo processo: qual delas roda é decidido no import, pelo env."""
+    import inspect  # noqa: PLC0415
+
+    import server as S  # noqa: PLC0415
+
+    fonte = inspect.getsource(S)
+    assert "app = _TetoASGI(_base)" in fonte, (
+        "a perna `AUTH_MODE=google` voltou a montar o app sem o teto — o conector exposto "
+        "na internet ficaria o único sem limite de requisições.")
+    assert "_BearerASGI(_TetoASGI(_base)" in fonte, (
+        "a perna bearer perdeu o teto, ou inverteu a ordem. A auth fica POR FORA: assim só "
+        "requisição autenticada consome cota e inundação anônima não tranca quem tem token.")
+    print("OK o teto entra na cadeia nas duas pernas, com a auth por fora no bearer")
+
+
+def test_teto_recusa_no_estouro_e_poupa_healthz() -> None:
+    import server as S  # noqa: PLC0415
+
+    rpm_real = S._RPM
+    S._RPM = 3
+    try:
+        guarda = S._TetoASGI(None)
+        assert [_resposta_teto(guarda) for _ in range(3)] == [0, 0, 0], (
+            "recusou antes de estourar o teto")
+        assert _resposta_teto(guarda) == 429, "a 4a chamada com teto 3 não foi recusada"
+        assert _resposta_teto(guarda, "/healthz") == 0, (
+            "/healthz levou 429 — o healthcheck do compose marcaria o container unhealthy "
+            "por causa de tráfego que chegou em outra rota.")
+    finally:
+        S._RPM = rpm_real
+    print("OK teto recusa na 4a com _RPM=3, e /healthz fica fora da conta")
+
+
 def test_comparacao_em_tempo_constante() -> None:
     import inspect  # noqa: PLC0415
 
@@ -125,7 +185,9 @@ if __name__ == "__main__":
     falhou = 0
     for fn in (test_token_vazio_nao_sobe, test_token_curto_nao_sobe,
                test_checagem_acontece_sempre, test_healthz_continua_aberto,
-               test_comparacao_em_tempo_constante):
+               test_comparacao_em_tempo_constante,
+               test_teto_entra_na_cadeia_nos_dois_modos,
+               test_teto_recusa_no_estouro_e_poupa_healthz):
         try:
             fn()
             print(f"PASS {fn.__name__}")

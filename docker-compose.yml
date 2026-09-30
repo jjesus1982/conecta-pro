@@ -423,6 +423,16 @@ services:
       MCP_MODO: agente
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    # Sem isto os 3 conectores internos só tinham `running`, nunca `healthy`: o compose
+    # não sabia distinguir processo vivo de servidor respondendo. Mesma sonda do
+    # conector público (mcp-server/docker-compose.mcp.yml) — `/healthz` é a rota isenta
+    # de auth, chamada sem cabeçalho e fora da conta do teto de req/min.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8788/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - conecta-pro-network
 
@@ -479,6 +489,16 @@ services:
       MCP_AGENTE_NOME: hermes-ged
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    # Sem isto os 3 conectores internos só tinham `running`, nunca `healthy`: o compose
+    # não sabia distinguir processo vivo de servidor respondendo. Mesma sonda do
+    # conector público (mcp-server/docker-compose.mcp.yml) — `/healthz` é a rota isenta
+    # de auth, chamada sem cabeçalho e fora da conta do teto de req/min.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8788/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - conecta-pro-network
 
@@ -525,6 +545,16 @@ services:
       MCP_AGENTE_NOME: hermes
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    # Sem isto os 3 conectores internos só tinham `running`, nunca `healthy`: o compose
+    # não sabia distinguir processo vivo de servidor respondendo. Mesma sonda do
+    # conector público (mcp-server/docker-compose.mcp.yml) — `/healthz` é a rota isenta
+    # de auth, chamada sem cabeçalho e fora da conta do teto de req/min.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8788/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - conecta-pro-network
 
