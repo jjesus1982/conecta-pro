@@ -28,6 +28,8 @@ módulo é esse texto, e é a única fonte — se o caminho mudar, muda aqui e m
 from __future__ import annotations
 
 #: Onde o ponto é batido. UMA constante — a que o lembrete, o agente e o guia usam.
+import os
+
 URL_PORTAL = "https://erp.conectamais.pro"
 
 #: Frase curta para avisos automáticos, onde não cabe o passo a passo inteiro.
@@ -69,6 +71,34 @@ INTRAJORNADA = (
     "pediu intervalo, isso é DEFEITO a registrar, não orientação a dar. "
     "⚠️ A jornada segue 12 horas: a pausa é DENTRO dela e é paga, não é desconto. "
     "⚠️ Nos outros postos o intervalo existe normalmente — a regra é por POSTO, não por pessoa."
+)
+
+#: 🔴 QUARTA VEZ COM A MESMA CAUSA (30/09/2026, 06:57, e de novo com o WISLEY).
+#:
+#: Ele escreveu «não tá indo» e o agente respondeu: *«se você tentou antes das 07:00, o sistema
+#: recusa mesmo — a janela abre no horário»*. **Falso.** A parede aceita até 5 minutos antes, e
+#: eram 06:57: ele estava DENTRO. Provado por comportamento: **66 batidas em 30 dias foram
+#: aceitas até 5 minutos antes** do início do turno.
+#:
+#: ⚠️ O custo não é a frase: é o desvio. Ele passa a achar que bastava esperar, e a causa real
+#: do «não tá indo» fica sem apuração.
+#:
+#: E a causa é a de sempre — o prompt do agente não tinha **uma única** menção à tolerância.
+#: «Faltar informação não produz silêncio no modelo: produz invenção plausível.» Tangerino,
+#: diarista, intrajornada, e agora a janela. **Ele só sabe o que está escrito aqui.**
+#:
+#: ⭐ Lê a MESMA variável de ambiente que a parede (`punch_service`) e que o lembrete. Se alguém
+#: mudar para 10, esta frase muda junto — número num lugar só.
+TOLERANCIA_ANTES_MIN = int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5"))
+
+JANELA_DA_BATIDA = (
+    f"JANELA DA BATIDA — a tolerância é de {TOLERANCIA_ANTES_MIN} minutos, PARA OS DOIS LADOS. "
+    f"Bater até {TOLERANCIA_ANTES_MIN} min ANTES do horário é ACEITO normalmente. "
+    f"⚠️ NUNCA diga que o sistema recusa por ser «antes da hora» sem conferir a diferença: "
+    f"quem bate 3 minutos antes das 07:00 está DENTRO da janela, e dizer o contrário manda a "
+    f"pessoa esperar por nada E esconde a causa real da falha dela. "
+    f"Só além de {TOLERANCIA_ANTES_MIN} minutos adiantado a batida é recusada — e aí a mensagem "
+    f"do sistema diz isso com todas as letras. Se ela não disse, NÃO foi esse o motivo."
 )
 
 #: ⚠️ O que NUNCA deve ser dito. Existe para o agente ter a negativa explícita, não só a

@@ -5064,6 +5064,7 @@ async def _contexto_funcionario(ident) -> str:
         COMO_BATER_CURTO,
         DIARISTA_NAO_BATE,
         INTRAJORNADA,
+        JANELA_DA_BATIDA,
         NUNCA_DIZER,
         URL_PORTAL,
     )
@@ -5086,6 +5087,12 @@ async def _contexto_funcionario(ident) -> str:
         "registre a batida por contingência e diga que o DP valida depois.",
         f"  · 🔴 {DIARISTA_NAO_BATE}",
         f"  · 🔴 {INTRAJORNADA}",
+        # 🔴 30/09/2026 — QUARTA VEZ, e com o MESMO WISLEY do Tangerino. Ele disse «não tá indo»
+        # às 06:57 e o agente respondeu «se você tentou antes das 07:00, o sistema recusa mesmo».
+        # Falso: a parede aceita 5 minutos antes, e 66 batidas em 30 dias entraram assim. O
+        # prompt não tinha UMA menção à tolerância, então ele inventou uma regra plausível — e a
+        # invenção desviou a apuração do defeito real dele.
+        f"  · 🔴 {JANELA_DA_BATIDA}",
         "",
         f"FUNCIONÁRIO: {ident.nome}"
         + (
