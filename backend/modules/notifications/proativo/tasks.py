@@ -241,7 +241,20 @@ async def _digest(db) -> dict:
                 f"(id, tenant_id, user_id, title, body, type, reference_type, reference_id, "
                 f" action_url, extra_data, is_active, sent_at, created_at) "
                 f"VALUES (gen_random_uuid(), :u, :u, :title, :body, 'sistema', 'proativo_digest', "
-                f" NULL, '/notificacoes', CAST(:extra AS jsonb), true, {_NOW_}, {_NOW_})"
+                # 🔴 30/09/2026 — ESTE DESTINO ERA UM 404, E ERA O MAIS CLICÁVEL DA CASA.
+                #
+                # `/notificacoes` não existe no frontend: medido, **374 notificações** para lá,
+                # a última de hoje, e **nenhuma sequer aberta**. É o digest da manhã — «Bom dia,
+                # o que precisa da sua atenção» —, ou seja, a única coisa que alguém abriria ao
+                # começar o dia levava ao vazio.
+                #
+                # ⭐ E o destino certo NÃO EXISTIA: o digest consolida alertas de módulos
+                # diferentes (CRM, ponto, fiscal, prazos), então não cabe na Central de
+                # Aprovações, que é de rascunhos. O módulo `alertas` foi criado para isto.
+                #
+                # ⚠️ Varredura dos 70 destinos distintos de 90 dias: 618 notificações apontavam
+                # para páginas inexistentes. Esta era a ÚNICA fonte ainda escrevendo.
+                f" NULL, '/redesign/alertas', CAST(:extra AS jsonb), true, {_NOW_}, {_NOW_})"
             ),
             {"u": uid, "title": "Bom dia — o que precisa da sua atenção", "body": corpo, "extra": extra},
         )
