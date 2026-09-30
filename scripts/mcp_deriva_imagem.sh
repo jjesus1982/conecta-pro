@@ -17,6 +17,7 @@ set -uo pipefail
 REPO=/opt/conecta-pro
 LABEL=br.pro.conectamais.mcp.git_sha
 PG=conecta-pro-postgres
+LOCK=/tmp/conecta_deploy.lock
 CONTAINERS=(conecta-pro-mcp conecta-pro-mcp-internal conecta-pro-mcp-ged conecta-pro-mcp-pessoas)
 
 cd "$REPO" || exit 1
@@ -26,8 +27,38 @@ cd "$REPO" || exit 1
 SHA_GIT=$(git log -1 --format=%H -- mcp-server/)
 
 if [[ "${1:-}" == "--build" ]]; then
-  echo "[deriva] buildando com GIT_SHA=$SHA_GIT"
-  MCP_GIT_SHA="$SHA_GIT" docker compose -f mcp-server/docker-compose.mcp.yml build || exit 1
+  # 1. RECUSA POR SUJEIRA, ESCOPADA em mcp-server/. Repo-wide não passaria nunca (~764
+  #    arquivos sujos de cinco sessões) e regra que nunca passa é ignorada em um dia — foi
+  #    por isso que checar_bake_pendente.py escopou em `-- backend/`.
+  SUJO=$(git status --porcelain -- mcp-server/)
+  if [[ -n "$SUJO" ]]; then
+    echo "[deriva] RECUSADO: mcp-server/ tem trabalho não commitado. O build publica o que" >&2
+    echo "         está COMMITADO, então isto não iria ao ar — mas você provavelmente quer" >&2
+    echo "         commitar antes de assar. Commite ou reverta:" >&2
+    echo "$SUJO" | sed 's/^/           /' >&2
+    exit 1
+  fi
+
+  # 2. LOCK COMPARTILHADO com o deploy do backend: um host, um daemon docker. É DIRETÓRIO
+  #    criado por mkdir (atômico), como scripts/deploy_backend_bluegreen.sh:128 — e não um
+  #    flock em arquivo, que aquele deploy APAGA de propósito (linhas 124-126: "não é o lock
+  #    desta casa, que é diretório"). Arquivo aqui significaria zero exclusão mútua.
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    DONO=$([[ -f "$LOCK/owner" ]] && cat "$LOCK/owner" || echo "$LOCK")
+    echo "[deriva] RECUSADO: lock de deploy ocupado ($DONO)" >&2
+    exit 1
+  fi
+  trap 'rm -rf "$LOCK" 2>/dev/null' EXIT
+  printf 'build do mcp pid=%s desde=%s\n' "$$" "$(date '+%F %T')" > "$LOCK/owner" 2>/dev/null
+
+  # 3. BUILD DO GIT, NÃO DO WORKING TREE. É o que torna "assar o trabalho parcial das
+  #    outras sessões" impossível em vez de proibido: arquivo não commitado não entra no
+  #    tar, então não existe no contexto do build. De brinde o GIT_SHA do label fica
+  #    verdadeiro por construção — não dá para rotular uma imagem com um commit que não a
+  #    produziu.
+  echo "[deriva] buildando de git archive HEAD:mcp-server (GIT_SHA=$SHA_GIT)"
+  git archive HEAD:mcp-server \
+    | docker build -t conecta-pro-mcp:latest --build-arg GIT_SHA="$SHA_GIT" - || exit 1
 fi
 
 # `Config.Labels` do container já traz os labels herdados da imagem.
