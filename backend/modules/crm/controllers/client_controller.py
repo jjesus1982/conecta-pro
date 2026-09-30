@@ -26,11 +26,30 @@ async def listar_clientes(
     current_user: CurrentActiveUser,
     status: str = Query(None, description="Filtrar por status (active, inactive)"),
     segment: str = Query(None, description="Filtrar por segmento"),
+    busca: str = Query(None, description="Trecho do nome ou do CNPJ/CPF (parcial, sem acento de caixa)"),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Lista todos os clientes ativos com dados financeiros."""
+    """Lista todos os clientes ativos com dados financeiros.
+
+    `busca` ENTROU em 30/09/2026 porque antes ela era aceita e IGNORADA: as tools passam
+    filtros por `**_`, então `listar_clientes(busca="Toscana")` devolvia a base inteira e
+    parecia ter funcionado. Filtro que não filtra é pior que filtro que recusa — quem lê o
+    resultado conclui que o cliente não existe ou que existem 31 «Toscana».
+    """
     where = "WHERE c.ativo = true"
     params: dict = {}
+    if busca:
+        # ⚠️ O ramo do documento só entra quando há DÍGITO. Sem esta guarda, uma busca por
+        # texto puro («Toscana») virava `document LIKE '%%'`, que casa com TODAS as linhas —
+        # o OR anulava o filtro do nome e a listagem voltava inteira, parecendo que o filtro
+        # não existia. Medido em 30/09/2026: 26 de 26 clientes para uma busca com 1 resultado.
+        digitos = "".join(ch for ch in busca if ch.isdigit())
+        cond = ["unaccent(lower(c.name)) LIKE unaccent(lower(:busca))"]
+        params["busca"] = f"%{busca.strip()}%"
+        if digitos:
+            cond.append("regexp_replace(coalesce(c.document_number,''),'[^0-9]','','g') LIKE :busca_doc")
+            params["busca_doc"] = f"%{digitos}%"
+        where += " AND (" + " OR ".join(cond) + ")"
     if status:
         where += " AND c.status = :status"
         params["status"] = status
@@ -109,5 +128,3 @@ async def listar_clientes(
         "total": len(rows),
         "gerado_em": datetime.now().isoformat(),
     }
-
-

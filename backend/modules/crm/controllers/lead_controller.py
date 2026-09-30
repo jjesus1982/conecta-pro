@@ -2,7 +2,6 @@
 Controller (endpoints) para Lead.
 """
 
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +20,15 @@ from modules.crm.schemas.lead import (
 )
 from modules.crm.services.pipeline_sync import ensure_opportunity_for_lead
 from modules.crm.services.timeline import log_activity
+
+
+def _serializar(modelo, registros, *, rotulo):
+    """Um lead fora do contrato não pode derrubar a listagem inteira — ver `listagem_tolerante`."""
+    from modules.crm.services.listagem_tolerante import serializar_lista
+
+    itens, _ = serializar_lista(modelo, registros, rotulo=rotulo)
+    return itens
+
 
 router = APIRouter(prefix="/leads", tags=["CRM - Leads"])
 
@@ -70,7 +78,7 @@ async def create_lead(
         from sqlalchemy import text as _text
 
         from core.database import async_session_factory
-        from modules.crm.services import growth_services as _G
+        from modules.crm.services import growth_services as _G  # noqa: N812
 
         _lid = str(lead.id)
         async with async_session_factory() as _s:
@@ -122,7 +130,7 @@ async def list_leads(  # pylint: disable=too-many-locals
     total_pages = (total + page_size - 1) // page_size
 
     return LeadListResponse(
-        items=[LeadResponse.model_validate(lead) for lead in leads],
+        items=_serializar(LeadResponse, leads, rotulo="lead"),
         total=total,
         page=page,
         page_size=page_size,

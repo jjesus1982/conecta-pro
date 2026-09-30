@@ -5,6 +5,7 @@ Um único router montado sob /crm. Endpoints públicos: /public/forms/* e /publi
 
 from __future__ import annotations
 
+import logging as _lg
 import os
 import re
 from datetime import datetime
@@ -772,22 +773,63 @@ async def docs_da_entidade(
     return await listar_da_entidade(db, entidade=entidade, entidade_id=entidade_id)
 
 
+#: Documento com número de série comercial (ORC-/PROP-/CTR-) é documento de CLIENTE, mesmo
+#: que a flag `teste` diga o contrário. Medido em 30/09/2026: 225 documentos estavam com
+#: `teste=true`, e entre eles orçamentos REAIS de Villa Toscana, Villa-Lobos, Michelangelo,
+#: Prime Arena, Estilo Golf, Green Hills e as versões da PROP-2026-00114. A flag veio true
+#: porque o cliente MCP montou a URL com `teste=true` — a rota sempre teve default false.
+#: A flag é do CHAMADOR; o número de série é do DOCUMENTO. O número manda.
+_RE_DOC_REAL = r"(ORC|PROP|CTR|OS)-[0-9]"
+
+
 @router.post("/docs/expurgar-teste")
 async def expurgar_documentos_teste(
-    _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db), confirmar: bool = False
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    confirmar: bool = False,
+    incluir_com_numero: bool = False,
 ):
-    """Arquiva (soft-delete) TODOS os documentos de teste (teste=true). confirmar=false só mostra a contagem."""
-    n = (await _one(db, "SELECT count(*) v FROM crm_documents WHERE teste=true AND arquivado=false", {})) or {}
-    qtd = int(n.get("v", 0))
+    """Arquiva (soft-delete) documentos de teste. `confirmar=false` LISTA o que seria atingido.
+
+    Protege por conta própria: documento com número de série comercial ou vinculado a uma
+    entidade (`ref_id`) NÃO é arquivado, mesmo com `teste=true` — só com
+    `incluir_com_numero=true`, que é uma segunda decisão explícita.
+    """
+    linhas = _rows(
+        await db.execute(
+            text(
+                "SELECT id::text, tipo, coalesce(titulo,'') titulo, coalesce(ref_tipo,'') ref_tipo, "
+                "       coalesce(ref_id,'') ref_id, to_char(created_at,'DD/MM/YYYY HH24:MI') criado, "
+                f"       (coalesce(titulo,'') ~ '{_RE_DOC_REAL}' OR coalesce(ref_id,'') <> '') AS parece_real "
+                "  FROM crm_documents WHERE teste=true AND arquivado=false ORDER BY created_at DESC"
+            )
+        )
+    )
+    reais = [x for x in linhas if x.get("parece_real")]
+    descartaveis = [x for x in linhas if not x.get("parece_real")]
+    alvo = linhas if incluir_com_numero else descartaveis
+
     if not confirmar:
         return {
             "preview": True,
-            "documentos_teste": qtd,
-            "aviso": f"{qtd} documento(s) de teste serão arquivados. Reenvie com confirmar=true.",
+            "total_marcados_teste": len(linhas),
+            "seriam_arquivados": len(alvo),
+            "protegidos_por_parecerem_reais": len(reais),
+            "amostra_protegidos": [f"{x['titulo']} ({x['criado']})" for x in reais[:20]],
+            "amostra_a_arquivar": [f"{x['titulo'] or x['tipo']} ({x['criado']})" for x in alvo[:20]],
+            "aviso": (
+                f"{len(alvo)} documento(s) seriam arquivados e {len(reais)} estão PROTEGIDOS por terem "
+                f"número de série comercial ou vínculo. Reenvie com confirmar=true. Para arquivar também "
+                f"os protegidos é preciso incluir_com_numero=true — leia a lista antes."
+            ),
         }
-    await db.execute(text("UPDATE crm_documents SET arquivado=true WHERE teste=true AND arquivado=false"))
+    if not alvo:
+        return {"expurgados": 0, "motivo": "nada fora da proteção", "protegidos": len(reais)}
+    ids = [x["id"] for x in alvo]
+    await db.execute(text("UPDATE crm_documents SET arquivado=true WHERE id = ANY(CAST(:ids AS uuid[]))"), {"ids": ids})
     await db.commit()
-    return {"expurgados": qtd}
+    _lg.getLogger(__name__).warning("expurgar_documentos_teste: %d arquivado(s), %d protegido(s)", len(ids), len(reais))
+    return {"expurgados": len(ids), "protegidos": len(reais), "ids": ids[:50]}
 
 
 # ===================================================================== ASSETS (upload sem SSH)

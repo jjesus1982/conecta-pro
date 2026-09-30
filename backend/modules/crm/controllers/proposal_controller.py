@@ -129,9 +129,7 @@ async def gerar_pdf_proposta(
             UniversalSignatureService,
         )
 
-        _st = await UniversalSignatureService(db).status(
-            document_type="proposal", document_id=str(proposal_id)
-        )
+        _st = await UniversalSignatureService(db).status(document_type="proposal", document_id=str(proposal_id))
         _signatarios = _st.get("signatarios")
     except Exception:  # noqa: BLE001
         _signatarios = None
@@ -291,13 +289,22 @@ async def list_proposals(  # pylint: disable=too-many-locals
 
     total_pages = (total + page_size - 1) // page_size
 
-    return ProposalListResponse(
-        items=[ProposalResponse.model_validate(p) for p in proposals],
+    # Um registro fora do contrato NÃO derruba a listagem — ver `listagem_tolerante`.
+    from modules.crm.services.listagem_tolerante import serializar_lista  # noqa: PLC0415
+
+    itens, problemas = serializar_lista(ProposalResponse, proposals, rotulo="proposta")
+    resp = ProposalListResponse(
+        items=itens,
         total=total,
         page=page,
         page_size=page_size,
         total_pages=total_pages,
     )
+    if problemas:
+        # O aviso viaja com a resposta: quem lê a lista fica sabendo que ela está incompleta,
+        # em vez de contar 14 onde há 15 e não desconfiar de nada.
+        object.__setattr__(resp, "__dict__", {**resp.__dict__, "avisos": problemas})
+    return resp
 
 
 # ============== Template Endpoints (antes de /{proposal_id} — evita captura de rota) ==============
@@ -408,7 +415,7 @@ async def marcar_proposta_enviada(
         await sync_opportunity_for_proposal(db, sent)
     except Exception as e:  # noqa: BLE001
         logger.warning("marcar-enviada: sync opportunity falhou: %s", e)
-    from modules.crm.services import orchestration as O
+    from modules.crm.services import orchestration as O  # noqa: N812
     from modules.crm.services.phone import canonical_br
 
     await O.upsert_negociacao(
@@ -445,7 +452,7 @@ async def send_proposal_whatsapp(
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposta nao encontrada")
 
-    from modules.crm.services import followups as F
+    from modules.crm.services import followups as F  # noqa: N812
     from modules.crm.services.phone import to_e164_br
     from modules.crm.services.proposal_delivery import sign_url
 
@@ -555,8 +562,8 @@ async def send_proposal_completo(
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposta nao encontrada")
 
-    from modules.crm.services import followups as F
-    from modules.crm.services import orchestration as O
+    from modules.crm.services import followups as F  # noqa: N812
+    from modules.crm.services import orchestration as O  # noqa: N812
     from modules.crm.services.phone import to_e164_br
     from modules.crm.services.proposal_delivery import sign_url
 
@@ -1013,9 +1020,7 @@ async def sign_proposal_public(
     if token:
         if not _verify_sign_token(proposal_id, token):
             logger.warning(f"sign_proposal_public: token INVÁLIDO/expirado proposta={proposal_id} ip={ip}")
-            raise HTTPException(
-                status_code=403, detail="Link de assinatura inválido ou expirado. Peça um novo link."
-            )
+            raise HTTPException(status_code=403, detail="Link de assinatura inválido ou expirado. Peça um novo link.")
         token_status = "valido"
     else:
         token_status = "ausente_legado"
@@ -1050,7 +1055,7 @@ async def sign_proposal_public(
         )
     # 🎉 fecha o ciclo: avisa o Jordan na hora que o negócio entrou (best-effort, nunca derruba o /sign).
     try:
-        from modules.crm.services import orchestration as _O  # noqa: PLC0415
+        from modules.crm.services import orchestration as _O  # noqa: PLC0415,N812
 
         await _O.notify_owner(
             f"🎉🎉 *PROPOSTA ASSINADA!* — {getattr(proposal, 'client_name', '') or data.signer_name}\n"
