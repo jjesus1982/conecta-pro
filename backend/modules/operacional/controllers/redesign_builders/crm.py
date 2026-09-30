@@ -660,6 +660,32 @@ _CONFIRMAR = [
 ]
 
 
+def _celula_emitente(nome_empresa, classe):
+    """Quem emite ESTE item, e se a razão está declarada.
+
+    Item anterior a 30/09/2026 tem `empresa_id` (NOT NULL desde 28/08) e não tem
+    `classe_fiscal`. A tela mostra a empresa e marca «classe não declarada» — inventar a
+    classe para deixar a coluna bonita seria inventar a fronteira fiscal do passado.
+    """
+    rotulo = {"material": "material", "servico_tecnico": "serviço técnico", "mao_de_obra": "mão de obra"}.get(
+        classe or ""
+    )
+    if not rotulo:
+        return b(f"{nome_empresa} · classe não declarada", "mut")
+    tom = "ok" if classe == "material" else ("info" if classe == "servico_tecnico" else "warn")
+    return b(f"{nome_empresa} · {rotulo}", tom)
+
+
+def _celula_split(n_empresas, nomes):
+    """Quantas NOTAS a proposta vira. Duas empresas = dois contratos e duas notas."""
+    n = int(n_empresas or 0)
+    if n == 0:
+        return b("sem itens", "mut")
+    if n == 1:
+        return b(f"1 nota · {nomes or '—'}", "ok")
+    return b(f"{n} notas · {nomes or '—'}", "warn")
+
+
 def _proposta_actions(r):
     """Ações da proposta por LINHA. As 3 rotas de envio levam {proposal_id} no CAMINHO —
     é aqui que elas cabem: o id vem da linha, não de um UUID colado à mão numa tela solta.
@@ -1569,11 +1595,38 @@ async def build(db) -> dict:
                 "Propostas",
                 f"{await _scalar(db, 'SELECT count(*) FROM proposals WHERE coalesce(is_active,true)')} propostas",
                 "Nova proposta",
-                ["Número", "Cliente", "Título", "Valor", "Status"],
-                "1fr 1.6fr 1.6fr 1fr 0.9fr",
-                "SELECT id, coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), coalesce(total,subtotal,0), status::text, coalesce(is_active,false) "
-                "FROM proposals WHERE coalesce(is_active,true) ORDER BY created_at DESC NULLS LAST LIMIT 200",
-                lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]), 600), b(r[5] or "—", "info")],
+                ["Número", "Cliente", "Título", "Valor", "Status", "Vira"],
+                "0.9fr 1.4fr 1.4fr 0.9fr 0.8fr 1.1fr",
+                # ⭐ 30/09/2026 — «VIRA»: quantas NOTAS esta proposta gera e de quais CNPJs.
+                # A proposta PODE misturar classes; a nota NUNCA pode. 1 em cada 4 propostas
+                # vivas mistura Eletrônica e Patrimonial, e o dono só descobria isso na hora
+                # de emitir. Agora está na linha, antes de mandar ao cliente.
+                #
+                # E `fixture = false`: «AA2-FIXTURE DGX AA2 / R$ 2.501,00» era o PRIMEIRO
+                # item desta tabela. Nada foi apagado — os 4 registros de teste continuam na
+                # base, marcados (ver `crm/services/fixtures.py`).
+                "SELECT p.id, coalesce(p.number,'—'), coalesce(p.client_name,'—'), coalesce(p.title,'—'), "
+                "       coalesce(p.total,p.subtotal,0), p.status::text, coalesce(p.is_active,false), "
+                # Conta por DOCUMENTO, não por empresa: material (NF-e) e serviço técnico
+                # (NFS-e) saem os DOIS pela Eletrônica e ainda assim são duas notas. Contar
+                # empresas diria «2 notas» na proposta do cenário 4, que gera TRÊS.
+                # Item sem classe cai no `empresa_id`, que é NOT NULL desde 28/08.
+                "       (SELECT count(DISTINCT coalesce(i.classe_fiscal, i.empresa_id::text)) "
+                "          FROM proposal_items i "
+                "         WHERE i.proposal_id = p.id AND coalesce(i.is_active,true)), "
+                "       (SELECT string_agg(DISTINCT coalesce(e.nome_fantasia, e.razao_social), ' + ') "
+                "          FROM proposal_items i JOIN empresas e ON e.id = i.empresa_id "
+                "         WHERE i.proposal_id = p.id AND coalesce(i.is_active,true)) "
+                "FROM proposals p WHERE coalesce(p.is_active,true) AND coalesce(p.fixture,false) = false "
+                "ORDER BY p.created_at DESC NULLS LAST LIMIT 200",
+                lambda r: [
+                    t(r[1], 600, "#0F1B3A"),
+                    t(r[2]),
+                    t(r[3]),
+                    t(brl(r[4]), 600),
+                    b(r[5] or "—", "info"),
+                    _celula_split(r[7], r[8]),
+                ],
                 docsfn=lambda r: [doc("Proposta", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")] if r[6] else [],
                 actionsfn=_proposta_actions,
             ),
@@ -2898,22 +2951,30 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
             "Itens de proposta",
             f"{await _scalar(db, 'SELECT count(*) FROM proposal_items WHERE coalesce(is_active,true)')} itens — o que compõe cada proposta",
             "Novo item",
-            ["Proposta", "Item", "Catálogo", "Qtd", "Unitário", "Desc. %", "Total", "Opcional"],
-            "1.3fr 2fr 1.1fr 0.5fr 0.9fr 0.6fr 0.9fr 0.7fr",
+            ["Proposta", "Item", "Emite por", "Catálogo", "Qtd", "Unitário", "Desc. %", "Total", "Opcional"],
+            "1.2fr 1.8fr 1.3fr 1fr 0.5fr 0.85fr 0.6fr 0.85fr 0.65fr",
             # dgx aa2 — `i.produto_id` é o elo com o catálogo (`products`). NULO = item digitado
             # à mão, que é o caso dos 177 itens anteriores a 24/09/2026: a tela DIZ isso em vez
             # de fingir que todo item tem produto. É esse elo que faz o orçamento aprovado virar
             # nota sem a Z5 ter de adivinhar o produto pela descrição.
             "SELECT coalesce(p.number,'—'), coalesce(i.name,'—'), coalesce(i.quantity,0), coalesce(i.unit_price,0), coalesce(i.discount_percent,0), "
             "coalesce(i.total,0), coalesce(i.is_optional,false), i.id::text, p.id::text, p.status::text, "
-            "coalesce(pr.code,''), coalesce(pr.ncm,'') "
+            "coalesce(pr.code,''), coalesce(pr.ncm,''), "
+            # ⭐ 30/09/2026 — POR QUAL DOS DOIS CNPJs ESTE ITEM SAI, na tela. A coluna
+            # existe no banco desde 28/08 (NOT NULL) e nenhuma tela a mostrava: o dono
+            # montava proposta mista sem ver que ela ia virar DUAS notas de empresas
+            # diferentes. `classe_fiscal` nasceu hoje e é a RAZÃO da empresa; item antigo
+            # tem empresa sem razão, e a tela diz isso em vez de inventar uma.
+            "coalesce(e.nome_fantasia, e.razao_social, '—'), coalesce(i.classe_fiscal,'') "
             "FROM proposal_items i JOIN proposals p ON p.id=i.proposal_id "
+            "LEFT JOIN empresas e ON e.id = i.empresa_id "
             "LEFT JOIN products pr ON pr.id = i.produto_id "
             "WHERE coalesce(i.is_active,true) AND coalesce(p.is_active,true) "
             "ORDER BY p.created_at DESC, i.sort_order LIMIT 300",
             lambda r: [
                 t(r[0], 600, "#0F1B3A"),
                 t(r[1]),
+                _celula_emitente(r[12], r[13]),
                 b(f"{r[10]}" + (f" · NCM {r[11]}" if r[11] else ""), "ok") if r[10] else b("digitado à mão", "mut"),
                 t(str(r[2])),
                 t(brl(r[3])),
