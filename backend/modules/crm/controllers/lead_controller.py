@@ -106,15 +106,27 @@ async def list_leads(  # pylint: disable=too-many-locals
     is_hot: bool | None = None,
     company: str | None = None,
     search: str | None = None,
+    #: Apelido PT de `search` (30/09/2026). Sem ele a rota ACEITAVA `busca` e a IGNORAVA:
+    #: FastAPI descarta query param desconhecido em silêncio, então `?busca=Toscana`
+    #: devolvia a base inteira com HTTP 200. Resposta errada é pior que erro.
+    busca: str | None = None,
+    incluir_fixtures: bool = Query(False, description="Traz de volta os registros de TESTE, que ficam fora por padrão"),
 ) -> LeadListResponse:
     """
     Lista leads com filtros e paginação.
 
     Suporta busca por nome, email ou empresa.
+
+    Registro de TESTE fica FORA por padrão desde 30/09/2026 (BUG-07). Nada foi apagado —
+    `incluir_fixtures=true` traz de volta.
     """
+    from modules.crm.services import fixtures as _fx  # noqa: PLC0415
+
+    await _fx.garantir_colunas(db)
     repo = LeadRepository(db)
 
     filters = LeadFilter(
+        incluir_fixtures=incluir_fixtures,
         status=status_filter,
         source=source,
         assigned_to_id=assigned_to_id,
@@ -122,7 +134,7 @@ async def list_leads(  # pylint: disable=too-many-locals
         max_score=max_score,
         is_hot=is_hot,
         company=company,
-        search=search,
+        search=(search or busca),
     )
 
     leads, total = await repo.list(filters=filters, page=page, page_size=page_size)

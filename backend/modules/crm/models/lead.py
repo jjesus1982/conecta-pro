@@ -134,9 +134,7 @@ class Lead(Base):
     # com NoReferencedTableError. A integridade REAL já existe no banco
     # (constraint leads_client_id_fkey -> clients); o ORM só precisa da coluna
     # para persistir o valor.
-    client_id: Mapped[str | None] = mapped_column(
-        UUID(as_uuid=False), nullable=True, index=True
-    )
+    client_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
 
     # Scoring e probabilidade
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -160,6 +158,9 @@ class Lead(Base):
 
     # Campos de controle
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # ⭐ 30/09/2026 — REGISTRO DE TESTE. Fora da listagem padrão; nada é apagado.
+    # «QA Bateria E2E 14/09 / CONDOMINIO TESTE QA» estava no funil que o dono abre.
+    fixture: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=func.now(),

@@ -309,11 +309,19 @@ class ProposalRepository:
         # sem isto a serializacao na lista faz lazy-load async -> MissingGreenlet 500.
         query = select(Proposal).options(selectinload(Proposal.items)).where(Proposal.is_active.is_(True))
 
+        # ⭐ BUG-07 (30/09/2026) — fixture não aparece na listagem que o dono abre.
+        # «AA2-FIXTURE DGX AA2 / R$ 2.501,00» era o PRIMEIRO item. O total também muda:
+        # contar 40 e mostrar 35 faria a paginação mentir na última página.
+        if not (filters and getattr(filters, "incluir_fixtures", False)):
+            query = query.where(Proposal.fixture.is_(False))
+
         if filters:
             query = self._apply_filters(query, filters)
 
         # Count total
         count_query = select(func.count(Proposal.id)).where(Proposal.is_active.is_(True))
+        if not (filters and getattr(filters, "incluir_fixtures", False)):
+            count_query = count_query.where(Proposal.fixture.is_(False))
         if filters:
             count_query = self._apply_filters(count_query, filters)
 

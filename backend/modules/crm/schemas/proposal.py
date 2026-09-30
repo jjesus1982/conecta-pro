@@ -421,6 +421,9 @@ class ProposalListResponse(BaseModel):
 class ProposalFilter(BaseModel):
     """Schema para filtros de busca."""
 
+    #: Fixtures ficam FORA por padrão (BUG-07). true traz de volta, para quem for auditar.
+    incluir_fixtures: bool = False
+
     status: ProposalStatus | None = None
     proposal_type: ProposalType | None = None
     opportunity_id: str | None = None

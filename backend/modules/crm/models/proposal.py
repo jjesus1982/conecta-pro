@@ -137,6 +137,9 @@ class Proposal(Base):
 
     # Controle
     is_active = Column(Boolean, default=True, nullable=False)
+    # ⭐ 30/09/2026 — REGISTRO DE TESTE. Some da listagem padrão; `incluir_fixtures=true`
+    # traz de volta. Nada é apagado (decisão do Jordan) — ver `crm/services/fixtures.py`.
+    fixture = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

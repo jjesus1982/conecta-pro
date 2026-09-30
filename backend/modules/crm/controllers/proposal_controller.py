@@ -24,6 +24,7 @@ from modules.crm.schemas.proposal import (
     ProposalUpdate,
 )
 from modules.crm.services import classe_fiscal as _cf
+from modules.crm.services import fixtures as _fx
 from modules.crm.services.pipeline_sync import ensure_contract_for_proposal, sync_opportunity_for_proposal
 from modules.crm.services.timeline import log_activity
 
@@ -274,15 +275,26 @@ async def list_proposals(  # pylint: disable=too-many-locals
     max_value: float | None = Query(None, ge=0),
     client_name: str | None = None,
     search: str | None = None,
+    #: Apelido PT de `search` (30/09/2026). Sem ele a rota ACEITAVA `busca` e a IGNORAVA:
+    #: FastAPI descarta query param desconhecido em silêncio, então `?busca=Toscana`
+    #: devolvia a base inteira com HTTP 200. Resposta errada é pior que erro.
+    busca: str | None = None,
+    incluir_fixtures: bool = Query(False, description="Traz de volta os registros de TESTE, que ficam fora por padrão"),
 ) -> ProposalListResponse:
     """
     Lista propostas com filtros e paginacao.
 
     Suporta busca por numero, titulo, cliente.
+
+    Registro de TESTE fica FORA por padrão desde 30/09/2026 (BUG-07): «AA2-FIXTURE DGX
+    AA2 / Cliente de fixture / R$ 2.501,00» era o primeiro item desta lista. Nada foi
+    apagado — `incluir_fixtures=true` traz os 4 de volta.
     """
+    await _fx.garantir_colunas(db)
     repo = ProposalRepository(db)
 
     filters = ProposalFilter(
+        incluir_fixtures=incluir_fixtures,
         status=status_filter,
         proposal_type=proposal_type,
         opportunity_id=opportunity_id,
@@ -290,7 +302,7 @@ async def list_proposals(  # pylint: disable=too-many-locals
         min_value=min_value,
         max_value=max_value,
         client_name=client_name,
-        search=search,
+        search=(search or busca),
     )
 
     proposals, total = await repo.list(filters=filters, page=page, page_size=page_size)

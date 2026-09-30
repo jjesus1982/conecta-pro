@@ -210,12 +210,13 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
             falhas.append("proposal_items.produto_id sem índice")
 
         # ── fixture: proposta própria, recriada a cada corrida ──────────────────────────
-        await db.execute(
-            text("DELETE FROM proposal_items WHERE proposal_id IN (SELECT id FROM proposals WHERE notes = :m)"),
-            {"m": MARCA},
-        )
-        await db.execute(text("DELETE FROM proposals WHERE notes = :m"), {"m": MARCA})
-        await db.commit()
+        # ⚠️ 30/09/2026 — A LIMPEZA SÓ NO INÍCIO DEIXAVA A LINHA VIVA ENTRE AS CORRIDAS.
+        # «AA2-FIXTURE DGX AA2 / Cliente de fixture / R$ 2.501,00» era o PRIMEIRO item de
+        # `listar_propostas` — a listagem que o dono abre. E `checar_desmonte_comportamento`
+        # não via: ele compara a contagem antes × depois, e apagar-uma-inserir-uma dá saldo
+        # ZERO. A linha estava sempre lá, só trocava de identidade a cada corrida.
+        # Agora limpa no início E no fim (o `finally` no rodapé do arquivo).
+        await _limpar_fixture(db)
         emp = (await db.execute(text("SELECT id::text FROM empresas ORDER BY razao_social LIMIT 1"))).scalar()
         prod = (
             await db.execute(
@@ -326,6 +327,12 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
         total_itens = (await db.execute(text("SELECT count(*) FROM proposal_items"))).scalar()
         total_prod = (await db.execute(text("SELECT count(*) FROM products WHERE coalesce(ativo,true)"))).scalar()
 
+        # DESMONTE, na MESMA sessão. Tentei primeiro num `finally` do __main__ e o
+        # `asyncio.run` de lá abre outro loop: o pool do engine pertence ao loop que já
+        # fechou e a limpeza morre com «Event loop is closed» — deixando a linha viva
+        # exatamente como antes, agora com um aviso que ninguém leria.
+        await _limpar_fixture(db)
+
     print(
         f"itens de orçamento: {total_itens} · ligados ao catálogo: {ligados} "
         f"(sem NCM no produto: {sem_ncm}) · digitados à mão: {soltos} · catálogo: {total_prod} produtos"
@@ -336,6 +343,18 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
         raise AssertionError(f"{len(falhas)} desvio(s) no item do orçamento vindo do catálogo")
     print("OK orçamento×catálogo: elo gravado, descrição/unidade/NCM do catálogo, preço só do humano, conta fecha")
     return 0
+
+
+async def _limpar_fixture(db) -> None:
+    """Apaga a proposta de fixture e seus itens. Idempotente, chamada no início E no fim."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    await db.execute(
+        text("DELETE FROM proposal_items WHERE proposal_id IN (SELECT id FROM proposals WHERE notes = :m)"),
+        {"m": MARCA},
+    )
+    await db.execute(text("DELETE FROM proposals WHERE notes = :m"), {"m": MARCA})
+    await db.commit()
 
 
 if __name__ == "__main__":

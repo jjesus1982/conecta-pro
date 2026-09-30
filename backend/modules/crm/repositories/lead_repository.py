@@ -21,9 +21,7 @@ class LeadRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def find_duplicate(
-        self, phone: str | None = None, email: str | None = None
-    ) -> Lead | None:
+    async def find_duplicate(self, phone: str | None = None, email: str | None = None) -> Lead | None:
         """Lead existente do MESMO contato — ponto único de dedup do CRM.
 
         Regra (decisão do Jordan, 2026-08-07): mesmo telefone = mesmo lead.
@@ -63,9 +61,7 @@ class LeadRepository:
 
         if email:
             alvo = email.strip().lower()
-            res = await self.db.execute(
-                select(Lead).where(Lead.is_active.is_(True), func.lower(Lead.email) == alvo)
-            )
+            res = await self.db.execute(select(Lead).where(Lead.is_active.is_(True), func.lower(Lead.email) == alvo))
             candidatos = res.scalars().all()
             return candidatos[0] if len(candidatos) == 1 else None
 
@@ -93,8 +89,7 @@ class LeadRepository:
                     await self.db.commit()
                     await self.db.refresh(existente)
                 logger.info(
-                    f"Lead reaproveitado: {existente.id} — origem preservada "
-                    f"({existente.source}), não duplicado"
+                    f"Lead reaproveitado: {existente.id} — origem preservada ({existente.source}), não duplicado"
                 )
                 return existente, False
         return await self.create(data), True
@@ -107,8 +102,15 @@ class LeadRepository:
         """
         mudou = False
         for campo in (
-            "email", "phone", "company", "position", "company_size",
-            "industry", "notes", "expected_value", "assigned_to_id",
+            "email",
+            "phone",
+            "company",
+            "position",
+            "company_size",
+            "industry",
+            "notes",
+            "expected_value",
+            "assigned_to_id",
         ):
             novo = getattr(data, campo, None)
             if novo and not getattr(lead, campo, None):
@@ -199,11 +201,17 @@ class LeadRepository:
         """
         query = select(Lead).where(Lead.is_active.is_(True))
 
+        # ⭐ BUG-07 — registro de teste fora do funil que o dono abre.
+        if not (filters and getattr(filters, "incluir_fixtures", False)):
+            query = query.where(Lead.fixture.is_(False))
+
         if filters:
             query = self._apply_filters(query, filters)
 
-        # Count total
+        # Count total — o MESMO filtro de fixture, senão a contagem mente na última página.
         count_query = select(func.count(Lead.id)).where(Lead.is_active.is_(True))
+        if not (filters and getattr(filters, "incluir_fixtures", False)):
+            count_query = count_query.where(Lead.fixture.is_(False))
         if filters:
             count_query = self._apply_filters(count_query, filters)
 

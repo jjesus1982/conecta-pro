@@ -495,6 +495,11 @@ TRAVAS_BINARIAS = {
     # lixo, na mira do expurgo. Nenhum teste pegava: cada função fazia o que a assinatura
     # mandava, e o defeito ERA a assinatura.
     "checar_flag_teste_padrao.py": ("host", "flag de descarte ligada no padrão da assinatura", 300),
+    # CONTAINER: lê a base. 30/09/2026 — «AA2-FIXTURE DGX AA2 / R$ 2.501,00» era o PRIMEIRO
+    # item de `listar_propostas`. O `checar_desmonte_comportamento` não via: ele compara
+    # CONTAGEM antes × depois, e o oráculo AA2 apagava no início e inseria — saldo zero.
+    # Delta é cego para apagar-e-inserir; esta olha o ESTADO.
+    "checar_fixture_viva.py": ("container", "registro de teste visível na listagem do dono", 300),
     # Cobertura rotas × telas (08/09/2026): toda rota montada precisa de chamador — redesign, interno
     # (MCP/Hermes/tasks/robôs/cron), alias, externo (webhook) ou dono. Fechou em 0 · 0 com 1220 rotas;
     # rota nova sem tela volta a acusar aqui. Leva ~1 min (enumera as rotas dentro do container).

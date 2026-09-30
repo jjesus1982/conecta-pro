@@ -110,6 +110,9 @@ class LeadListResponse(BaseModel):
 class LeadFilter(BaseModel):
     """Schema para filtros de busca de Leads."""
 
+    #: Fixtures ficam FORA por padrão (BUG-07). true traz de volta.
+    incluir_fixtures: bool = False
+
     status: LeadStatus | None = None
     # `str`, não `LeadSource`: o banco tem origens fora do enum, gravadas por caminhos
     # que usam INSERT cru (`campanha_{nome}`, `visita_tecnica`, `licitacao`). Com o tipo
