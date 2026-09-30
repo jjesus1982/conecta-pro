@@ -32,6 +32,16 @@ from modules.crm.schemas.proposal import (
     ProposalTemplateUpdate,
     ProposalUpdate,
 )
+from modules.crm.services import classe_fiscal as _cf
+
+
+class EmpresaNaoResolvida(ValueError):  # noqa: N818 — não é erro nosso: é declaração que falta
+    """Item de proposta sem CNPJ emitente resolvível. Vira 422 com mensagem, nunca 500.
+
+    Existe como classe própria (e não `ValueError` solto) para o controller poder
+    distinguir "o operador não declarou a empresa" — que se resolve declarando — de
+    qualquer outro ValueError, que é defeito nosso e merece 500 mesmo.
+    """
 
 
 class ProposalRepository:
@@ -110,6 +120,15 @@ class ProposalRepository:
             status=ProposalStatus.DRAFT.value,
             created_by_id=created_by_id,
         )
+
+        # ⭐ 30/09/2026 — A EMPRESA DE CADA ITEM SE RESOLVE ANTES DO INSERT, OU RECUSA.
+        # `proposal_items.empresa_id` é NOT NULL de propósito desde 28/08. O que faltava
+        # era alguém resolver: o POST montava o item com `empresa_id=None`, o Postgres
+        # devolvia NotNullViolation e o FastAPI virava 500 "Internal Server Error". Seis
+        # tentativas do Jordan em 30/09 morreram assim, nenhuma dizendo o que faltava.
+        faltando = _cf.resolver_empresa_dos_itens(data.items, getattr(data, "empresa", None))
+        if faltando:
+            raise EmpresaNaoResolvida(_cf.recusa_por_empresa(faltando))
 
         # Itens em memória — _create_item já calcula item.total (sem IO)
         items = [self._create_item(proposal.id, item_data, i) for i, item_data in enumerate(data.items)]
@@ -226,6 +245,7 @@ class ProposalRepository:
             # NOT NULL no banco: quem chega aqui sem empresa já foi recusado antes, com
             # mensagem. Repassar `None` daria erro de integridade sem explicação.
             empresa_id=str(data.empresa_id) if getattr(data, "empresa_id", None) else None,
+            classe_fiscal=_cf.normalizar_classe(getattr(data, "classe_fiscal", None)),
         )
         item.calculate_total()
         return item

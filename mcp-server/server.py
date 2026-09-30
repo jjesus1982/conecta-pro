@@ -764,7 +764,7 @@ async def _uuid_do_contrato(chave: str) -> str | dict:
     ⚠️ `_resolver_contrato` devolve o NÚMERO (CTR-…), que é o que as rotas de EMISSÃO aceitam.
     As rotas REST de contrato querem o UUID e fazem `uuid.UUID(...)` direto: passar o número
     estoura com "badly formed hexadecimal UUID string" e sai 500.
-    
+
     ⭐ 18/09/2026 — esta lição estava escrita dentro de `obter_contrato` desde 11/09
     ("identificador certo para a rota errada falha tão bem quanto identificador errado") e
     `atualizar_contrato` não a aplicava: ela mandava `PUT /crm/contracts/CTR-2026-00025` e
@@ -1046,11 +1046,23 @@ async def criar_proposta(
     cliente_documento: str | None = None,
     cliente_email: str | None = None,
     condicoes_pagamento: str | None = None,
+    empresa: str | None = None,
 ) -> dict:
     """Cria uma proposta/orçamento no CRM.
 
-    itens: lista de {"nome": str, "quantidade": number, "preco_unitario": number}.
-    Ex.: itens=[{"nome":"Cerca elétrica instalada","quantidade":1,"preco_unitario":11966.70}].
+    itens: lista de {"nome": str, "quantidade": number, "preco_unitario": number,
+                     "classe_fiscal": "material"|"servico_tecnico"|"mao_de_obra"}.
+    Ex.: itens=[{"nome":"Leitor facial","quantidade":1,"preco_unitario":2400,
+                 "classe_fiscal":"material"}].
+
+    ⚠️ CADA ITEM PRECISA SABER POR QUAL DOS DOIS CNPJs SAI, e é `classe_fiscal` que diz:
+      material        → Conecta Mais Eletrônica  · 35.710.481/0001-03
+      servico_tecnico → Conecta Mais Eletrônica  · 35.710.481/0001-03 · ISS 5%
+      mao_de_obra     → Conecta Mais Patrimonial · 66.014.833/0001-10 · ISS 0% + INSS 11%
+    Se a proposta inteira for de uma empresa só, basta `empresa="eletronica"` ou
+    `empresa="patrimonial"` no lugar de repetir a classe em cada linha. Sem nenhum dos
+    dois a criação RECUSA com 422 dizendo quais itens faltam — não chuta CNPJ.
+
     O total é calculado pelo sistema. Retorna número e id da proposta.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
@@ -1060,10 +1072,13 @@ async def criar_proposta(
         "client_name": cliente_nome,
         "items": [
             {"name": i.get("nome") or i.get("name"), "quantity": i.get("quantidade", i.get("quantity", 1)),
-             "unit_price": i.get("preco_unitario", i.get("unit_price", 0))}
+             "unit_price": i.get("preco_unitario", i.get("unit_price", 0)),
+             "classe_fiscal": i.get("classe_fiscal") or i.get("classe")}
             for i in (itens or [])
         ],
     }
+    if empresa:
+        payload["empresa"] = empresa
     if cliente_documento:
         payload["client_document"] = cliente_documento
     if cliente_email:
@@ -1108,12 +1123,13 @@ def _payload_proposta(p: dict) -> dict:
         "items": [
             {"name": i.get("nome") or i.get("name"),
              "quantity": i.get("quantidade", i.get("quantity", 1)),
-             "unit_price": i.get("preco_unitario", i.get("unit_price", 0))}
+             "unit_price": i.get("preco_unitario", i.get("unit_price", 0)),
+             "classe_fiscal": i.get("classe_fiscal") or i.get("classe")}
             for i in itens
         ],
     }
     for k_pt, k_en in (("cliente_documento", "client_document"), ("cliente_email", "client_email"),
-                       ("condicoes_pagamento", "payment_terms")):
+                       ("condicoes_pagamento", "payment_terms"), ("empresa", "empresa")):
         if p.get(k_pt):
             payload[k_en] = p[k_pt]
     return payload

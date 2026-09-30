@@ -11,7 +11,7 @@ from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from core.logging import logger
 from modules.crm.models.proposal import ProposalStatus, ProposalType
-from modules.crm.repositories.proposal_repository import ProposalRepository
+from modules.crm.repositories.proposal_repository import EmpresaNaoResolvida, ProposalRepository
 from modules.crm.schemas.proposal import (
     ProposalCreate,
     ProposalCreateFromOpportunity,
@@ -23,6 +23,7 @@ from modules.crm.schemas.proposal import (
     ProposalResponse,
     ProposalUpdate,
 )
+from modules.crm.services import classe_fiscal as _cf
 from modules.crm.services.pipeline_sync import ensure_contract_for_proposal, sync_opportunity_for_proposal
 from modules.crm.services.timeline import log_activity
 
@@ -207,8 +208,15 @@ async def create_proposal(
 
     Requer autenticacao. Totais sao calculados automaticamente.
     """
+    await _cf.garantir_colunas(db)
     repo = ProposalRepository(db)
-    proposal = await repo.create(data, created_by_id=str(current_user.id))
+    try:
+        proposal = await repo.create(data, created_by_id=str(current_user.id))
+    except EmpresaNaoResolvida as e:
+        # 422, não 500: o que falta é declaração do operador, não defeito nosso. E a
+        # mensagem VIAJA — era isso que faltava nas seis tentativas de 30/09, que só
+        # diziam "Internal Server Error" e não ensinavam o que preencher.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     # Pipeline: toda proposta nasce com um deal ligado (estágio "Proposta").
     await sync_opportunity_for_proposal(db, proposal)
     await log_activity(

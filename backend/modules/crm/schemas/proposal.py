@@ -3,7 +3,6 @@ Schemas Pydantic para Proposal.
 """
 
 from datetime import date, datetime
-
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -39,6 +38,11 @@ class ProposalItemCreate(ProposalItemBase):
     #: porque 1 em cada 4 propostas vivas mistura Eletrônica e Patrimonial — e o contrato
     #: sai separado por empresa. Opcional aqui, OBRIGATÓRIO no banco: quem monta resolve.
     empresa_id: UUID | None = None
+    #: material | servico_tecnico | mao_de_obra (30/09/2026). É a RAZÃO do `empresa_id`:
+    #: declarada a classe, a empresa deixa de ser escolha de alguém e vira consequência
+    #: (ver `modules/crm/services/classe_fiscal.py`). É também o que agrupa as notas na
+    #: emissão — uma nota por classe, nunca uma nota misturando duas.
+    classe_fiscal: str | None = None
 
 
 class ProposalTermOptionCreate(BaseModel):
@@ -92,6 +96,10 @@ class ProposalItemResponse(ProposalItemBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    #: Sai na resposta desde 30/09/2026: é por estes dois campos que a tela mostra que
+    #: uma proposta mista vai virar DUAS notas, e por qual CNPJ cada linha sai.
+    empresa_id: UUID | None = None
+    classe_fiscal: str | None = None
 
 
 # ============== ProposalTemplate Schemas ==============
@@ -173,8 +181,11 @@ class ProposalBase(BaseModel):
         # Endereço reservado não é endereço: vira None, que é o que o dado sempre foi.
         # Tratar aqui e não só no dado porque a próxima importação pode inventar de novo.
         dominio = v.strip().rsplit("@", 1)[-1].lower()
-        if dominio.endswith((".invalid", ".example", ".test", ".localhost")) \
-                or dominio in ("example.com", "example.org", "example.net"):
+        if dominio.endswith((".invalid", ".example", ".test", ".localhost")) or dominio in (
+            "example.com",
+            "example.org",
+            "example.net",
+        ):
             return None
         return v
 
@@ -215,6 +226,11 @@ class ProposalCreate(ProposalBase):
 
     # Itens (opcional na criacao)
     items: list[ProposalItemCreate] = []
+
+    #: Empresa PADRÃO herdada pelos itens que não declararam classe nem empresa própria
+    #: (30/09/2026). Aceita 'eletronica', 'patrimonial', o CNPJ ou o uuid. Não é palpite
+    #: do sistema: é o operador dizendo uma vez o que valeria repetir em cada linha.
+    empresa: str | None = None
 
     # Multi-prazo + recorrência (sprint94)
     billing_type: str = "recurring"  # recurring | one_time

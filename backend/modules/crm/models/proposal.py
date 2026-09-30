@@ -261,6 +261,12 @@ class ProposalItem(Base):
     # pior que uma: a do ORM daria falsa sensação de garantia.
     empresa_id = Column(UUID(as_uuid=False), nullable=False, index=True)
 
+    # ⭐ 30/09/2026 — A RAZÃO do empresa_id acima: material | servico_tecnico | mao_de_obra.
+    # Nullable porque os 177 itens anteriores a esta data carregam a empresa sem carregar
+    # o motivo dela — e inventar o motivo agora seria reescrever história. Daqui em diante
+    # é a classe que DECIDE a empresa, e é ela que agrupa as notas na emissão.
+    classe_fiscal = Column(String(20), nullable=True)
+
     # Produto/Serviço
     code = Column(String(50), nullable=True)
     name = Column(String(255), nullable=False)
