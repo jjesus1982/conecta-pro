@@ -19,7 +19,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from modules.crm.services import pdf_branding as B
+from modules.crm.services import pdf_branding as B  # noqa: N812 — dívida pré-existente deste arquivo
 
 
 def _doc(titulo: str) -> tuple:
@@ -141,14 +141,22 @@ def build_recibo_pagamento_pdf(d: dict) -> bytes:
     st = B.styles()
     el: list = []
     el += _meta(st, d.get("numero", ""), B.br_date(dt))
-    el.append(Table([[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
-                    colWidths=[80 * mm], hAlign="LEFT",
-                    style=TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
-                        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 10)])))
+    el.append(
+        Table(
+            [[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
+            colWidths=[80 * mm],
+            hAlign="LEFT",
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                    ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]
+            ),
+        )
+    )
     el.append(Spacer(1, 8 * mm))
     texto = (
         f"Recebi de <b>{emp['razao']}</b>, inscrita no CNPJ sob o nº {emp['cnpj']}, "
@@ -455,7 +463,12 @@ def build_orcamento_pdf(d: dict) -> bytes:
       condicoes?: {pagamento?, validade_dias?, garantia?, prazo?, execucao?},
       observacao?,
     }
+    `empresa`: dict de branding do EMITENTE (de `pdf_branding.empresa_branding`). Ausente
+    cai na Eletrônica, que é o default histórico — o chamador do ERP já recusa antes de
+    chegar aqui, e este módulo não decide fronteira fiscal.
+
     Assinatura: cliente (manual) + empresa/CEO (digital)."""
+    emp = d.get("empresa") or B.EMPRESA
     itens = d.get("itens") or []
     tipos = {(it.get("tipo") or "material").lower() for it in itens}
     misto = len(tipos) > 1
@@ -476,15 +489,20 @@ def build_orcamento_pdf(d: dict) -> bytes:
     # Selo de natureza (chip laranja) — Venda de Material / Prestação de Serviço / Material e Serviço
     chip = Table(
         [[Paragraph(f'<font color="#FFFFFF"><b>{nat_label}</b></font>', st["small"])]],
-        colWidths=[len(nat_label) * 2.2 * mm + 12 * mm], hAlign="LEFT",
+        colWidths=[len(nat_label) * 2.2 * mm + 12 * mm],
+        hAlign="LEFT",
     )
-    chip.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), B.LARANJA),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-    ]))
+    chip.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), B.LARANJA),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
     el.append(chip)
     el.append(Spacer(1, 5 * mm))
 
@@ -527,15 +545,19 @@ def build_orcamento_pdf(d: dict) -> bytes:
         ]
         rows.append(row)
     t = Table(rows, colWidths=widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.5, B.AZUL_MEDIO),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, B.FUNDO_CLARO]),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, B.AZUL_MEDIO),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, B.FUNDO_CLARO]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
     el.append(t)
     el.append(Spacer(1, 5 * mm))
 
@@ -552,23 +574,28 @@ def build_orcamento_pdf(d: dict) -> bytes:
         base_parc = total - entrada
         vparc = round(base_parc / parcelas, 2)
         if entrada > 0:
-            linhas_pag.append([f"Parcelado", f"entrada {B.brl(entrada)} + {parcelas}x de {B.brl(vparc)}"])
+            linhas_pag.append(["Parcelado", f"entrada {B.brl(entrada)} + {parcelas}x de {B.brl(vparc)}"])
         else:
-            linhas_pag.append([f"Parcelado", f"{parcelas}x de {B.brl(vparc)} (sem juros)"])
+            linhas_pag.append(["Parcelado", f"{parcelas}x de {B.brl(vparc)} (sem juros)"])
     tt = Table(
         [[Paragraph(f"<b>{a}</b>", st["cell"]), Paragraph(f"<b>{b}</b>", st["cellr"])] for a, b in linhas_pag],
-        colWidths=[110 * mm, 68 * mm], hAlign="RIGHT",
+        colWidths=[110 * mm, 68 * mm],
+        hAlign="RIGHT",
     )
-    tt.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), B.FUNDO_CLARO),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.white),
-        ("BOX", (0, 0), (-1, -1), 1.0, B.LARANJA),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.4, B.AZUL_MEDIO),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-    ]))
+    tt.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), B.FUNDO_CLARO),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 1.0, B.LARANJA),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.4, B.AZUL_MEDIO),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
     el.append(tt)
     el.append(Spacer(1, 4 * mm))
 
@@ -592,9 +619,7 @@ def build_orcamento_pdf(d: dict) -> bytes:
         if parcelas and parcelas > 1:
             base_parc = total - entrada
             vparc = round(base_parc / parcelas, 2)
-            opcoes.append(
-                (f"entrada de {B.brl(entrada)} + " if entrada > 0 else "") + f"{parcelas}x de {B.brl(vparc)}"
-            )
+            opcoes.append((f"entrada de {B.brl(entrada)} + " if entrada > 0 else "") + f"{parcelas}x de {B.brl(vparc)}")
         pag = "; ou ".join(opcoes) + "." if opcoes else "conforme negociação."
     linhas = [
         f"<b>Pagamento:</b> {pag}",
@@ -605,7 +630,9 @@ def build_orcamento_pdf(d: dict) -> bytes:
     if natureza in ("servico", "ambos") and cond.get("execucao"):
         linhas.append(f"<b>Execução:</b> {cond['execucao']}")
     prazo_default = "a combinar, conforme disponibilidade de estoque." if natureza == "material" else "a combinar."
-    linhas.append(f"<b>Prazo de {'entrega/execução' if natureza=='ambos' else ('entrega' if natureza=='material' else 'execução')}:</b> {cond.get('prazo') or prazo_default}")
+    linhas.append(
+        f"<b>Prazo de {'entrega/execução' if natureza == 'ambos' else ('entrega' if natureza == 'material' else 'execução')}:</b> {cond.get('prazo') or prazo_default}"
+    )
     for linha in linhas:
         el.append(Paragraph("• " + linha, st["corpo"]))
     el.append(Spacer(1, 8 * mm))
@@ -619,11 +646,12 @@ def build_orcamento_pdf(d: dict) -> bytes:
         funcionario_cpf=docnum or None,
         digital_funcionario=False,
         digital_empresa=True,
+        empresa=emp,
     )
     doc.build(
         el,
-        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo=titulo_doc),
-        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo=titulo_doc),
+        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo=titulo_doc, empresa=emp),
+        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo=titulo_doc, empresa=emp),
     )
     return buf.getvalue()
 
@@ -646,7 +674,7 @@ def build_recibo_diarias_pdf(d: dict) -> bytes:
     ref_banco = d.get("ref_banco") or ""
     dt_pgto = d.get("data_pagamento")
     competencia = d.get("competencia") or ""
-    dias = d.get("dias") or []          # [(data, posto, turno, funcao, valor)]
+    dias = d.get("dias") or []  # [(data, posto, turno, funcao, valor)]
     emp = d.get("empresa") or B.EMPRESA
     dt = d.get("data") or date.today()
 
@@ -654,14 +682,22 @@ def build_recibo_diarias_pdf(d: dict) -> bytes:
     st = B.styles()
     el: list = []
     el += _meta(st, d.get("numero", ""), B.br_date(dt))
-    el.append(Table([[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
-                    colWidths=[80 * mm], hAlign="LEFT",
-                    style=TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
-                        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 10)])))
+    el.append(
+        Table(
+            [[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
+            colWidths=[80 * mm],
+            hAlign="LEFT",
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                    ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ]
+            ),
+        )
+    )
     el.append(Spacer(1, 7 * mm))
 
     pago_em = f" em {B.br_date(dt_pgto)}" if dt_pgto else ""
@@ -674,42 +710,69 @@ def build_recibo_diarias_pdf(d: dict) -> bytes:
     )
     el.append(Paragraph(texto, st["corpo"]))
     if ref_banco:
-        el.append(Paragraph(
-            f"<font size=8 color='#6B7280'>Identificador da transferência: {ref_banco}</font>",
-            st["corpo"]))
+        el.append(
+            Paragraph(f"<font size=8 color='#6B7280'>Identificador da transferência: {ref_banco}</font>", st["corpo"])
+        )
     el.append(Spacer(1, 5 * mm))
 
     # Detalhamento — é o que permite conferir
     el.append(Paragraph("Diárias que compõem este valor", st["h_sec"]))
     linhas = [[Paragraph(f"<b>{c}</b>", st["cellh"]) for c in ("DATA", "POSTO", "TURNO", "FUNÇÃO", "VALOR")]]
     for dia in dias:
-        linhas.append([Paragraph(str(dia[0]), st["cell"]), Paragraph(str(dia[1]), st["cell"]),
-                       Paragraph(str(dia[2]), st["cell"]), Paragraph(str(dia[3]), st["cell"]),
-                       Paragraph(B.brl(float(dia[4])), st["cellr"])])
-    linhas.append([Paragraph("", st["cell"]), Paragraph("", st["cell"]), Paragraph("", st["cell"]),
-                   Paragraph("<b>TOTAL</b>", st["cell"]), Paragraph(f"<b>{B.brl(valor)}</b>", st["cellr"])])
+        linhas.append(
+            [
+                Paragraph(str(dia[0]), st["cell"]),
+                Paragraph(str(dia[1]), st["cell"]),
+                Paragraph(str(dia[2]), st["cell"]),
+                Paragraph(str(dia[3]), st["cell"]),
+                Paragraph(B.brl(float(dia[4])), st["cellr"]),
+            ]
+        )
+    linhas.append(
+        [
+            Paragraph("", st["cell"]),
+            Paragraph("", st["cell"]),
+            Paragraph("", st["cell"]),
+            Paragraph("<b>TOTAL</b>", st["cell"]),
+            Paragraph(f"<b>{B.brl(valor)}</b>", st["cellr"]),
+        ]
+    )
     t = Table(linhas, colWidths=[26 * mm, 52 * mm, 26 * mm, 42 * mm, 26 * mm], hAlign="LEFT")
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, B.FUNDO_CLARO]),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.8, B.AZUL_MEDIO),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, B.FUNDO_CLARO]),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.8, B.AZUL_MEDIO),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
     el.append(t)
     el.append(Spacer(1, 4 * mm))
-    el.append(Paragraph(
-        "<font size=8 color='#6B7280'>Confira os dias acima antes de assinar. Divergência, "
-        "procure o setor financeiro. Vale-transporte e vale-refeição são pagos à parte, "
-        "por dia, e não entram neste valor.</font>", st["corpo"]))
+    el.append(
+        Paragraph(
+            "<font size=8 color='#6B7280'>Confira os dias acima antes de assinar. Divergência, "
+            "procure o setor financeiro. Vale-transporte e vale-refeição são pagos à parte, "
+            "por dia, e não entram neste valor.</font>",
+            st["corpo"],
+        )
+    )
     el.append(Spacer(1, 4 * mm))
     el.append(Paragraph(B.data_extenso(dt), st["corpo"]))
     el += B.campos_assinatura(
-        st, funcionario_nome=recebedor, funcionario_label="Assinatura do Recebedor",
-        funcionario_doc_rotulo="CPF", funcionario_cpf=docnum or None,
-        responsavel_nome=None, digital_funcionario=False, digital_empresa=True)
+        st,
+        funcionario_nome=recebedor,
+        funcionario_label="Assinatura do Recebedor",
+        funcionario_doc_rotulo="CPF",
+        funcionario_cpf=docnum or None,
+        responsavel_nome=None,
+        digital_funcionario=False,
+        digital_empresa=True,
+    )
     doc.build(
         el,
         onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO DE DIÁRIAS", empresa=emp),

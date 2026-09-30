@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, get_current_active_user
 from core.database import get_db
+from modules.crm.services import classe_fiscal as _cf
 from modules.crm.services import growth_services as G  # noqa: N812
 
 router = APIRouter(tags=["CRM - Growth"])
@@ -763,14 +764,25 @@ async def baixar_documento_conteudo(
 @router.get("/docs/da-entidade")
 async def docs_da_entidade(
     current_user: CurrentActiveUser,  # noqa: ARG001
-    entidade: str,
     entidade_id: str,
+    entidade: str | None = None,
+    entidade_tipo: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Tudo que está pendurado numa entidade — o que o sistema gerou e o que foi anexado."""
+    """Tudo que está pendurado numa entidade — o que o sistema gerou e o que foi anexado.
+
+    `entidade_tipo` é APELIDO de `entidade` (30/09/2026): o contrato publicado da tool
+    pedia um nome e a rota exigia o outro, e quem chamava pelo nome publicado levava 422.
+    """
     from modules.crm.services.docs_registry import listar_da_entidade
 
-    return await listar_da_entidade(db, entidade=entidade, entidade_id=entidade_id)
+    alvo = entidade or entidade_tipo
+    if not alvo:
+        raise HTTPException(
+            422,
+            "informe `entidade` ('cliente', 'contrato', 'proposta' ou 'deal'); o apelido `entidade_tipo` também vale.",
+        )
+    return await listar_da_entidade(db, entidade=alvo, entidade_id=entidade_id)
 
 
 #: Documento com número de série comercial (ORC-/PROP-/CTR-) é documento de CLIENTE, mesmo
@@ -2174,11 +2186,19 @@ class ItemOrcamentoIn(BaseModel):
     qtd: float = 1
     unidade: str = "un"
     tipo: str = "material"  # material | servico
+    #: material | servico_tecnico | mao_de_obra (30/09/2026). É ela que decide o EMITENTE
+    #: do documento — `tipo` acima só decide o rótulo «Material»/«Serviço» na tabela e
+    #: nunca soube distinguir serviço técnico (Eletrônica) de mão de obra (Patrimonial).
+    classe_fiscal: str | None = None
 
 
 class OrcamentoIn(BaseModel):
     cliente: str
     itens: list[ItemOrcamentoIn]
+    #: OBRIGATÓRIO quando os itens não declaram classe (BUG-05, prompt 1 [4]). Aceita
+    #: 'eletronica', 'patrimonial', o CNPJ ou o uuid. Sem ela e sem classe o orçamento
+    #: RECUSA: era assim que orçamento de mão de obra saía com o CNPJ da Eletrônica.
+    empresa: str | None = None
     documento: str | None = None  # CNPJ/CPF do cliente
     cidade: str | None = None
     numero: str | None = None
@@ -2189,6 +2209,80 @@ class OrcamentoIn(BaseModel):
     entrada: float | None = None
     condicoes: dict[str, Any] | None = None
     observacao: str | None = None
+
+
+async def _emitente_do_orcamento(data) -> dict:
+    """Branding do CNPJ que EMITE este orçamento. Recusa em vez de assumir a Eletrônica.
+
+    Ordem: `empresa` explícita → classe dos itens → recusa. Itens de classes que caem em
+    CNPJs diferentes exigem escolha explícita: o papel tem UM cabeçalho, e escolher por
+    conta própria qual dos dois imprimir é o defeito que esta função existe para matar.
+    """
+    from modules.crm.services import pdf_branding as _marca
+
+    escolhida = _cf.empresa_uuid(data.empresa)
+    das_classes = {e for e in (_cf.empresa_da_classe(i.classe_fiscal) for i in data.itens) if e}
+
+    if escolhida and das_classes - {escolhida}:
+        outras = ", ".join(sorted(_cf._nome_curto(e) for e in das_classes - {escolhida}))
+        raise HTTPException(
+            422,
+            f"você pediu o orçamento pela {_cf._nome_curto(escolhida)}, "
+            f"mas há itens cuja classe fiscal sai pela {outras}. "
+            f"Separe em dois orçamentos ou corrija a classe dos itens.",
+        )
+    if not escolhida:
+        if len(das_classes) > 1:
+            raise HTTPException(
+                422,
+                "este orçamento mistura itens da ELETRÔNICA e da "
+                "PATRIMONIAL e o documento tem um cabeçalho só. "
+                "Informe `empresa` para dizer quem emite ESTE papel, "
+                "ou separe em dois orçamentos.",
+            )
+        escolhida = next(iter(das_classes), None)
+    if not escolhida:
+        raise HTTPException(
+            422,
+            "não sei qual dos dois CNPJs emite este orçamento. Informe "
+            "`empresa` ('eletronica' para equipamento e segurança "
+            "eletrônica, 'patrimonial' para mão de obra com agente "
+            "nosso no posto), ou declare `classe_fiscal` nos itens.",
+        )
+
+    slug = {_cf.ELETRONICA: "conecta_eletronica", _cf.PATRIMONIAL: "conecta_patrimonial"}[escolhida]
+    return _marca.empresa_branding(slug)
+
+
+async def _cliente_do_documento(db, nome: str | None, documento: str | None) -> str | None:
+    """Resolve o cliente cadastrado por CNPJ (preferido) ou por nome exato. None se não há.
+
+    NÃO cria cliente de passagem: o `criar_orcamento` do orquestrador já recusa cliente
+    inexistente com mensagem, e criar aqui em silêncio faria o cadastro crescer por
+    digitação. Sem cliente resolvido o documento é salvo sem vínculo, como antes — só que
+    agora isso é a exceção e não a regra.
+    """
+    doc = (documento or "").strip()
+    nom = (nome or "").strip()
+    if not doc and not nom:
+        return None
+    # CNPJ primeiro; NOME como queda. A queda importa: `gerar_orcamento` recebe o cliente
+    # como texto livre e o CNPJ é opcional — sem ela, um dígito errado no documento perde
+    # o vínculo em silêncio, que é o mesmo silêncio do BUG-04.
+    row = (
+        await db.execute(
+            text(
+                "SELECT id::text FROM clients "
+                " WHERE (:d <> '' AND regexp_replace(coalesce(document_number,''),'[^0-9]','','g') "
+                "        = regexp_replace(:d,'[^0-9]','','g')) "
+                "    OR (:n <> '' AND upper(name) = upper(:n)) "
+                " ORDER BY (:d <> '' AND regexp_replace(coalesce(document_number,''),'[^0-9]','','g') "
+                "           = regexp_replace(:d,'[^0-9]','','g')) DESC LIMIT 1"
+            ),
+            {"d": doc, "n": nom},
+        )
+    ).first()
+    return row[0] if row else None
 
 
 @router.post("/docs/orcamento/pdf")
@@ -2211,10 +2305,28 @@ async def gerar_orcamento_pdf(
     payload = data.model_dump()
     if not payload.get("numero"):
         payload["numero"] = f"ORC-2026-{int(_time.time()) % 100000:05d}"
+
+    # ⭐ BUG-05 (30/09/2026) — O EMITENTE SAI DO CADASTRO, NUNCA DE CONSTANTE.
+    # `pdf_branding.EMPRESA` é a Eletrônica e era o que o cabeçalho e o rodapé usavam
+    # SEMPRE. ORC-2026-88152 e ORC-2026-89327, ambos de mão de obra, saíram com o CNPJ
+    # 35.710.481/0001-03 — objeto social e regime errados no papel que vai ao cliente.
+    payload["empresa"] = await _emitente_do_orcamento(data)
+
     pdf = build_orcamento_pdf(payload)
     if salvar:
+        # ⭐ BUG-04 — O DOCUMENTO PASSA A SABER DE QUEM É. `ref_tipo`/`ref_id` existiam e
+        # ninguém preenchia: o cliente CLI-2026-00020 recebeu dois orçamentos e a ficha
+        # dele não listava nenhum, porque `cliente` chegava como texto livre e morria aí.
+        ref_id = await _cliente_do_documento(db, data.cliente, data.documento)
         return await _salvar_pdf(
-            db, "orcamento", f"Orçamento {payload['numero']} - {data.cliente}", pdf, teste=teste, drive=drive
+            db,
+            "orcamento",
+            f"Orçamento {payload['numero']} - {data.cliente}",
+            pdf,
+            ref_tipo=("client" if ref_id else None),
+            ref_id=ref_id,
+            teste=teste,
+            drive=drive,
         )
     return Response(
         content=pdf,

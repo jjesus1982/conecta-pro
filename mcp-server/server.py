@@ -5667,13 +5667,24 @@ async def baixar_documento(documento_id: str, formato: str = "base64",
 
 
 @mcp.tool
-async def listar_documentos_da_entidade(entidade: str, entidade_id: str) -> dict:
+async def listar_documentos_da_entidade(entidade_id: str, entidade: str | None = None,
+                                        entidade_tipo: str | None = None) -> dict:
     """Todos os documentos de uma entidade — os que o sistema gerou E os anexados de fora.
 
+    `entidade` (ou o apelido `entidade_tipo`): 'cliente' | 'contrato' | 'proposta' | 'deal'.
     Traz categoria, nome, VERSÃO, tamanho e link. Use para saber se um contrato já tem
     instrumento assinado anexado, ou qual é a versão mais recente de um deck.
     Só lê.
+
+    ⚠️ 30/09/2026 — `entidade_tipo` é APELIDO, não campo novo. O contrato publicado e a
+    implementação divergiam: quem chamava com `entidade_tipo` levava erro de argumento
+    inesperado (req_9383085497dc9027). Aceitar os dois nomes custa uma linha; obrigar o
+    chamador a adivinhar qual dos dois é o certo custou uma chamada perdida.
     """
+    entidade = entidade or entidade_tipo
+    if not entidade:
+        return {"erro": "informe `entidade`: 'cliente', 'contrato', 'proposta' ou 'deal' "
+                        "(o apelido `entidade_tipo` também vale)."}
     alvo = entidade_id
     if (entidade or "").strip().lower() == "contrato":
         alvo = await _resolver_contrato(entidade_id)

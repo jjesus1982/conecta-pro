@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.crm.services import followups as F
+from modules.crm.services import followups as F  # noqa: N812 — dívida pré-existente deste arquivo
 from modules.crm.services.phone import canonical_br, to_e164_br
 
 logger = logging.getLogger(__name__)
@@ -1390,7 +1390,7 @@ async def _resolve_cliente_ref(db: AsyncSession, ref: str) -> dict:
         (
             await db.execute(
                 text("""
-        SELECT id, name, COALESCE(whatsapp, mobile, phone) AS fone FROM clients
+        SELECT id, name, document_number, COALESCE(whatsapp, mobile, phone) AS fone FROM clients
         WHERE id::text=:a OR regexp_replace(coalesce(document_number,''),'\\D','','g')=:doc
               OR name ILIKE :like
         ORDER BY (name ILIKE :like) DESC LIMIT 1"""),
@@ -1401,8 +1401,13 @@ async def _resolve_cliente_ref(db: AsyncSession, ref: str) -> dict:
         .first()
     )
     if r:
-        return {"cliente_id": str(r["id"]), "cliente_nome": r["name"], "phone_canonical": canonical_br(r["fone"])}
-    return {"cliente_id": None, "cliente_nome": ref, "phone_canonical": None}
+        return {
+            "cliente_id": str(r["id"]),
+            "cliente_nome": r["name"],
+            "documento": r["document_number"],
+            "phone_canonical": canonical_br(r["fone"]),
+        }
+    return {"cliente_id": None, "cliente_nome": ref, "documento": None, "phone_canonical": None}
 
 
 async def anotar_cliente(db: AsyncSession, ref: str, nota: str, autor: str | None = None) -> dict:
@@ -1461,11 +1466,80 @@ async def ficha_cliente(db: AsyncSession, ref: str) -> dict:
         .mappings()
         .first()
     )
+    # ⭐ BUG-04 (30/09/2026) — A FICHA PASSA A MOSTRAR O QUE O CLIENTE JÁ RECEBEU.
+    # O cliente CLI-2026-00020 (Villa Toscana) tinha DOIS orçamentos e a ficha devolvia
+    # `negociacao: null` e nenhum documento. O dono olhava a ficha e concluía que não
+    # havia nada — havia R$ 100 mil em papel emitido, invisível.
+    docs = (
+        [
+            dict(r)
+            for r in (
+                await db.execute(
+                    text("""
+        SELECT tipo, titulo, to_char(created_at,'DD/MM/YYYY') AS quando,
+               id::text AS id, token
+          FROM crm_documents
+         WHERE arquivado = false AND ref_tipo = 'client' AND ref_id = :cid
+         ORDER BY created_at DESC LIMIT 30"""),
+                    {"cid": info["cliente_id"]},
+                )
+            )
+            .mappings()
+            .all()
+        ]
+        if info["cliente_id"]
+        else []
+    )
+
+    props = [
+        dict(r)
+        for r in (
+            await db.execute(
+                text("""
+        SELECT number, title, status, total,
+               to_char(created_at,'DD/MM/YYYY') AS quando
+          FROM proposals
+         WHERE upper(client_name) = upper(:nome)
+            OR regexp_replace(coalesce(client_document,''),'[^0-9]','','g')
+               = regexp_replace(coalesce(:doc,''),'[^0-9]','','g')
+               AND coalesce(:doc,'') <> ''
+         ORDER BY created_at DESC LIMIT 30"""),
+                {"nome": info["cliente_nome"] or "", "doc": info.get("documento")},
+            )
+        )
+        .mappings()
+        .all()
+    ]
+
+    contratos = (
+        [
+            dict(r)
+            for r in (
+                await db.execute(
+                    text("""
+        SELECT contract_number AS numero, name AS titulo, status::text AS status,
+               monthly_value AS mensal, to_char(start_date,'DD/MM/YYYY') AS inicio
+          FROM contracts
+         WHERE client_id::text = :cid AND :cid IS NOT NULL
+         ORDER BY created_at DESC LIMIT 30"""),
+                    {"cid": info["cliente_id"]},
+                )
+            )
+            .mappings()
+            .all()
+        ]
+        if info["cliente_id"]
+        else []
+    )
+
     return {
         "cliente": info["cliente_nome"],
         "cliente_id": info["cliente_id"],
         "negociacao": (dict(neg) if neg else None),
         "anotacoes": notas,
+        "documentos": docs,
+        "propostas": props,
+        "contratos": contratos,
     }
 
 
