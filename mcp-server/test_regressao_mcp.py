@@ -30,11 +30,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 import time
 
-import server as S
+os.environ.setdefault("MCP_AUTH_TOKEN", "t" * 64)  # o import de `server` é fail-closed sem token
+
+import server as S  # noqa: E402
 
 MAIAPOLIS_CNPJ = "55090416000130"
 MAIAPOLIS_CTR = "CTR-2026-00022"
@@ -661,7 +664,7 @@ async def extra_total_sem_quantidade() -> str:
     ⭐ R8-1 (18/09/2026). Antes imprimia `TOTAL · qtd 0`; o conserto da R6 fez o total SOMAR
     as quantidades (`qtd 2` para 1 sistema + 1 locação), que é errado de outra forma — somar
     quantidades de itens heterogêneos não significa nada.
-    
+
     ⚠️ E a razão de existir esta trava é o meu critério de aceite da R6: ele dizia "nenhum
     caminho produz `qtd 0`". Foi cumprido ao pé da letra e o defeito passou por baixo, porque
     a régua mirava o VALOR errado em vez da LINHA errada. Quem escreve o aceite decide o que

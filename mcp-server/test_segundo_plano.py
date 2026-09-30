@@ -27,6 +27,7 @@ import asyncio
 import os
 
 os.environ["MCP_MODO"] = "agente"  # as duas paredes só existem no modo agente
+os.environ.setdefault("MCP_AUTH_TOKEN", "t" * 64)  # o import de `server` é fail-closed sem token
 
 import gate_propose  # noqa: E402
 import identidade  # noqa: E402

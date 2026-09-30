@@ -27,6 +27,8 @@ COPY test_capabilities_sem_fantasma.py .
 COPY test_lgpd_escopo.py .
 COPY test_envelope_de_erro.py .
 COPY test_defaults_nao_apagam.py .
+# trava: modo bearer sem token (ou com token curto) NÃO sobe — fail-closed no import
+COPY test_bearer_fail_closed.py .
 # a varredura paramétrica roda DENTRO da imagem: fora dela mede outro código
 COPY varredura_envelope.py .
 # ⚠️ a suíte de regressão vai na imagem mas NÃO roda no build: ela exige o ERP de pé.
@@ -38,7 +40,7 @@ COPY test_regressao_mcp.py .
 COPY test_aceites_cowork.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
-RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py && python test_efeito_externo.py && python test_capabilities_sem_fantasma.py && python test_lgpd_escopo.py && python test_envelope_de_erro.py && python test_defaults_nao_apagam.py
+RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py && python test_efeito_externo.py && python test_capabilities_sem_fantasma.py && python test_lgpd_escopo.py && python test_envelope_de_erro.py && python test_defaults_nao_apagam.py && python test_bearer_fail_closed.py
 
 EXPOSE 8788
 

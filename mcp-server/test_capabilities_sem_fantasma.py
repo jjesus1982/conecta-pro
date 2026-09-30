@@ -20,9 +20,12 @@ São 15 linhas de teste que impedem a classe inteira de erro.
 """
 from __future__ import annotations
 
+import os
 import re
 
-import server as S
+os.environ.setdefault("MCP_AUTH_TOKEN", "t" * 64)  # o import de `server` é fail-closed sem token
+
+import server as S  # noqa: E402
 
 _NOME_VALIDO = re.compile(r"^[a-z][a-z0-9_]*$")
 

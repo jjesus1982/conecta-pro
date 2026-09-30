@@ -18,12 +18,15 @@ têm a mesma palavra no nome e níveis opostos; o que separa é a rota que cada 
 from __future__ import annotations
 
 import inspect
+import os
 import re
 from datetime import date
 
-import lgpd_escopo as L
-import server as S
-from tool_risk_manifest import TOOL_RISK
+os.environ.setdefault("MCP_AUTH_TOKEN", "t" * 64)  # o import de `server` é fail-closed sem token
+
+import lgpd_escopo as L  # noqa: E402
+import server as S  # noqa: E402
+from tool_risk_manifest import TOOL_RISK  # noqa: E402
 
 # Rotas e termos que indicam contato com pessoa identificável ou dado sensível.
 _TOCA_PESSOA = re.compile(

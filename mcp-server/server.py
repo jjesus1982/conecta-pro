@@ -5116,7 +5116,11 @@ _mcp_app = mcp.http_app(path="/mcp")
 
 
 async def _healthz(_request):
-    return JSONResponse({"ok": True, "service": "conecta-pro-mcp"})
+    # Rota ABERTA (isenta no `_BearerASGI`): o healthcheck do compose chama sem cabeçalho.
+    # Por isso o corpo não identifica serviço, versão nem catálogo — quem não autenticou
+    # recebe só o sinal de vida. Nada consome o corpo: compose e setup_publico.sh olham o
+    # código HTTP.
+    return JSONResponse({"status": "ok"})
 
 
 _base = Starlette(
@@ -5139,12 +5143,29 @@ _base = Starlette(
 _RPM = int(os.getenv("MCP_RPM", "240"))
 
 
+#: Tamanho mínimo do token de entrada. Os conectores no ar usam 64 chars
+#: (`secrets.token_hex(32)`); abaixo disso é token de rascunho chegando em produção.
+_TOKEN_MIN = 64
+
+
 class _BearerASGI:
     """Auth de entrada por Bearer token (pura ASGI — não quebra streaming/SSE do MCP)."""
 
     def __init__(self, app, token: str):
+        # FAIL-CLOSED, simétrico ao modo google: sem token não há o que comparar em
+        # `__call__`, e o conector responderia 200 a qualquer um com todo o catálogo de ferramentas do
+        # ERP atrás. Serviço sem autenticação não sobe.
+        if len(token) < _TOKEN_MIN:
+            raise RuntimeError(
+                f"AUTH_MODE={AUTH_MODE} exige MCP_AUTH_TOKEN com no mínimo {_TOKEN_MIN} "
+                f"caracteres (recebido: {len(token)}). Sem ele a auth de entrada não existe "
+                f"e todo o catálogo de ferramentas do ERP ficam abertas. Gere com "
+                "`python -c 'import secrets; print(secrets.token_hex(32))'`, ou use "
+                "AUTH_MODE=google.")
         self.app = app
         self.token = token
+        #: Cabeçalho esperado em bytes: compara sem decodificar (header cru pode não ser UTF-8).
+        self._esperado = f"Bearer {token}".encode()
         self._janela: float = 0.0
         self._contador: int = 0
 
@@ -5158,16 +5179,21 @@ class _BearerASGI:
         return self._contador > _RPM
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and self.token:
+        if scope["type"] == "http":
             if scope.get("path") != "/healthz":
                 headers = dict(scope.get("headers") or [])
-                if headers.get(b"authorization", b"").decode() != f"Bearer {self.token}":
+                # Tempo constante: `!=` devolve na primeira divergência e o tempo de
+                # resposta entrega o prefixo certo, byte a byte, com amostragem suficiente.
+                if not secrets.compare_digest(headers.get(b"authorization", b""), self._esperado):
                     await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
                     return
                 if _RPM > 0 and self._estourou():
-                    logger.error(  # noqa: F821
-                        "MCP: teto de %s req/min estourado (%s em 60s) — recusando. "
-                        "Volume assim é varredura, não uso.", _RPM, self._contador)
+                    # `logger` nunca existiu neste módulo: o teto estourado levantava
+                    # NameError e o cliente recebia 500 do uvicorn em vez do 429. O arquivo
+                    # registra por print/flush — é o que o docker logs mostra.
+                    print(
+                        f"[mcp] teto de {_RPM} req/min estourado ({self._contador} em 60s) — "
+                        f"recusando. Volume assim é varredura, não uso.", flush=True)
                     await JSONResponse(
                         {"error": "rate_limited",
                          "detail": f"Teto de {_RPM} requisições por minuto."},
@@ -5715,7 +5741,10 @@ async def listar_documentos_da_entidade(entidade_id: str, entidade: str | None =
     """
     entidade = entidade or entidade_tipo
     if not entidade:
-        return {"erro": "informe `entidade`: 'cliente', 'contrato', 'proposta' ou 'deal' "
+        return {"ok": False, "codigo": "PARAMETRO_OBRIGATORIO", "http": 422,
+                "mensagem": "Faltou informar: entidade.",
+                "campos_faltantes": ["entidade"],
+                "dica": "Use entidade='cliente' | 'contrato' | 'proposta' | 'deal' "
                         "(o apelido `entidade_tipo` também vale)."}
     alvo = entidade_id
     if (entidade or "").strip().lower() == "contrato":

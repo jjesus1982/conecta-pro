@@ -23,9 +23,12 @@ real — já aconteceu nesta casa (CTR-2026-00024 nasceu de um teste meu).
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
-import server as S
+os.environ.setdefault("MCP_AUTH_TOKEN", "t" * 64)  # o import de `server` é fail-closed sem token
+
+import server as S  # noqa: E402
 
 # Dados reais e estáveis do CRM. São ÂNCORAS, não fotografias: o teste afirma a REGRA
 # (o filtro filtra, o nome vem junto), nunca "existem N contratos".
