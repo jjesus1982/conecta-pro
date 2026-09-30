@@ -1,4 +1,8 @@
 // GERADO — índice dos módulos extraídos dos *.dc.html (fonte da verdade)
+// 🔴 30/09/2026 — ALERTAS. O módulo NÃO aparece só por existir no backend: este índice tem um
+// `import` explícito por módulo, e sem a linha aqui o JSON nunca entra no bundle. Medido na
+// hora: backend servindo `alertas` com a tela e os cinco filtros, e o front sem enxergar nada.
+import alertas from '@/app/redesign/_modules/alertas.json';
 import agendador from '@/app/redesign/_modules/agendador.json';
 import aprovacoes from '@/app/redesign/_modules/aprovacoes.json';
 import analytics from '@/app/redesign/_modules/analytics.json';
@@ -35,6 +39,7 @@ import servicos from '@/app/redesign/_modules/servicos.json';
 import suprimentos from '@/app/redesign/_modules/suprimentos.json';
 
 export const MODULES: Record<string, any> = {
+  'alertas': alertas,
   'agendador': agendador,
   'aprovacoes': aprovacoes,
   'analytics': analytics,

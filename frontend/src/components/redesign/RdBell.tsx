@@ -30,6 +30,7 @@ export default function RdBell() {
   const { total, refresh: refreshCount } = useUnreadCount(30000);
   const {
     notifications, isLoading, refresh, markAsRead, markAllAsRead,
+    markAsClicked: marcarClicada,
   } = useNotifications({ autoLoad: false, initialPageSize: 12, initialFilters: { is_read: false } });
 
   // carrega a lista só na primeira abertura (lazy — não pesa navegação)
@@ -60,6 +61,17 @@ export default function RdBell() {
   async function abrirNotificacao(n: Notification) {
     if (!n.is_read) await lerUma(n.id);
     if (n.action_url) {
+      // ⭐ 30/09/2026 — LIDA ≠ CLICADA, e a diferença é a única que importa.
+      //
+      // Abrir o sino e passar o olho é LIDA, e acontece por rolagem. Ir para a tela é
+      // CLICADA: é o que separa «vi» de «fui tratar». `clicked_at` existia na tabela e
+      // estava vazio nas 11.029 notificações — ninguém nunca o escreveu. Eu li esse zero
+      // como «ninguém age sobre os alertas» e afirmei isso ao dono; era falso, e tive de
+      // retirar. Sem este registro, a pergunta «alguém trata o que a casa avisa?» não tem
+      // resposta — só palpite.
+      //
+      // ⚠️ Não é `await`: a métrica não pode atrasar a navegação de quem ia resolver.
+      void marcarClicada(n.id);
       setOpen(false);
       router.push(n.action_url);
     }

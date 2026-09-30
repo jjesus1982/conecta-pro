@@ -10,16 +10,14 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text as _text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
-from modules.operacional.communication.models.alert import AlertSeverity, AlertType
 from modules.operacional.communication.models.notification import NotificationType
 from modules.operacional.communication.schemas.communication_schemas import (
     AlertCreate,
-    AlertFilter,
-    AlertListResponse,
     AlertResponse,
     MarkNotificationReadRequest,
     NotificationFilter,
@@ -190,6 +188,65 @@ async def mark_notification_read(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Notificacao nao encontrada",
         )
+
+
+@router.post(
+    "/notificacoes/{notification_id}/clicada",
+    status_code=204,
+    summary="Registrar que a pessoa FOI para a tela",
+    description="Marca clicked_at — distinto de lida. Lida é ter visto no sino; clicada é ter ido resolver.",
+)
+async def mark_notification_clicked(
+    notification_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Registra o CLIQUE, que é diferente de leitura.
+
+    🔴 MEDIDO EM 30/09/2026: `clicked_at` estava vazio nas **11.029 notificações** da tabela
+    inteira. A coluna existia desde sempre e ninguém nunca escreveu nela.
+
+    ⭐ E isso me fez errar na frente do dono: eu li «zero cliques em 348 notificações» e afirmei
+    que **ninguém age sobre os alertas**. Era falso — o que havia era um campo morto. Tive de
+    retirar a conclusão. **Campo que ninguém escreve não é medida de comportamento; é ausência
+    de instrumento.**
+
+    A distinção é o que dá valor ao número:
+      · `read_at`    — abriu o sino e viu. Barato, e acontece por rolagem.
+      · `clicked_at` — FOI para a tela resolver. É isto que separa «vi» de «tratei».
+
+    ⚠️ Best-effort de propósito (204 e nunca levanta): o registro do clique não pode impedir a
+    navegação. Se falhar, a pessoa vai para a tela do mesmo jeito — perder a métrica é barato,
+    travar quem ia resolver não é.
+    """
+    try:
+        await db.execute(
+            _text(
+                # 🔴 MANAUS, NÃO UTC — e eu escrevi UTC na primeira versão, horas depois de
+                # consertar exatamente este defeito em `tentativa_log`.
+                #
+                # Medido em 30/09: `created_at` desta tabela é MANAUS na esmagadora maioria
+                # (81 linhas hoje: agent_draft 36, proativo 23, shift 9, task_falha 8, digests 5)
+                # contra 6 em UTC (fiscal_guia, boletos_por_email). Gravar o clique em UTC faria
+                # «tempo entre avisar e tratar» nascer 4 horas errado — a única métrica que esta
+                # coluna existe para produzir.
+                #
+                # ⚠️ E o `read_at` do repositório (`datetime.utcnow()`) É o que está fora do
+                # lugar: por isso 1.145 linhas de `agent_draft` mostram EXATAMENTE 4,0 horas
+                # entre criar e ler. Não é comportamento, é o fuso — ninguém lê exatamente
+                # quatro horas depois, mil vezes. Não mexi nele: aquele repositório serve o
+                # sistema clássico inteiro e a troca é decisão do dono, não minha.
+                "UPDATE communication_notifications "
+                "   SET clicked_at = (now() AT TIME ZONE 'America/Manaus'), "
+                "       read_at = coalesce(read_at, (now() AT TIME ZONE 'America/Manaus')) "
+                " WHERE id = CAST(:nid AS uuid) AND user_id = CAST(:uid AS uuid)"
+            ),
+            {"nid": notification_id, "uid": str(current_user.id)},
+        )
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — ver docstring: métrica nunca bloqueia navegação
+        logger.warning("clicked_at não registrado para %s: %s", notification_id, exc)
+    return None
 
 
 @router.post(

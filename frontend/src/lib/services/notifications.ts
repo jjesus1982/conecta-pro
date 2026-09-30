@@ -182,6 +182,24 @@ export const notificationsService = {
   },
 
   /**
+   * Registra que a pessoa FOI para a tela — distinto de lida.
+   *
+   * 🔴 30/09/2026: `clicked_at` estava vazio nas 11.029 notificações da tabela. A coluna
+   * existia e ninguém nunca escreveu nela — e eu cheguei a afirmar «ninguém age sobre os
+   * alertas» lendo esse zero. Campo que ninguém escreve não é medida de comportamento.
+   *
+   * ⚠️ Best-effort: nunca levanta. Se o registro falhar, a navegação segue — perder a
+   * métrica é barato, travar quem ia resolver não é.
+   */
+  async markAsClicked(id: string): Promise<void> {
+    try {
+      await api.post(`${NOTIFICATIONS_URL}/${id}/clicada`);
+    } catch {
+      /* métrica não bloqueia navegação */
+    }
+  },
+
+  /**
    * Marca todas notificações como lidas
    */
   async markAllAsRead(notificationIds?: string[]): Promise<{ success: boolean; count: number }> {

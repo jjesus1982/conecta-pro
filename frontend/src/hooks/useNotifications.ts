@@ -51,6 +51,7 @@ interface UseNotificationsReturn {
   setPageSize: (size: number) => void;
   refresh: () => Promise<void>;
   markAsRead: (id: string) => Promise<boolean>;
+  markAsClicked: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<boolean>;
   deleteNotification: (id: string) => Promise<boolean>;
 }
@@ -105,6 +106,27 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
   const setFilters = useCallback((newFilters: NotificationFilter) => {
     setFiltersState(newFilters);
     setPage(1);
+  }, []);
+
+  /**
+   * Registra que a pessoa FOI para a tela. ⭐ LIDA ≠ CLICADA.
+   *
+   * 🔴 30/09/2026: `clicked_at` estava vazio nas 11.029 notificações da tabela — a coluna
+   * existia e ninguém nunca escreveu nela. Eu li esse zero como «ninguém age sobre os
+   * alertas» e afirmei isso ao dono; era falso, e tive de retirar. Campo que ninguém
+   * escreve não é medida de comportamento, é ausência de instrumento.
+   *
+   * Abrir o sino e passar o olho é LIDA (acontece por rolagem). Ir para a tela é CLICADA —
+   * e é ela que separa «vi» de «fui tratar».
+   *
+   * ⚠️ Nunca levanta: a métrica não pode impedir a navegação de quem ia resolver.
+   */
+  const markAsClicked = useCallback(async (id: string): Promise<void> => {
+    try {
+      await customInstance<void>({ url: `${NOTIFICATIONS_URL}/${id}/clicada`, method: 'POST' });
+    } catch {
+      /* métrica não bloqueia navegação */
+    }
   }, []);
 
   const markAsRead = useCallback(async (id: string): Promise<boolean> => {
@@ -166,6 +188,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     setPageSize,
     refresh: fetchData,
     markAsRead,
+    markAsClicked,
     markAllAsRead,
     deleteNotification,
   };
