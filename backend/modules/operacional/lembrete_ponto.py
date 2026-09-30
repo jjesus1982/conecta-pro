@@ -117,7 +117,22 @@ _REF_SAIDA = (
 _REF_RETORNO = (
     "((SELECT max(cp.punch_timestamp) FROM gp_clock_punches cp "
     "   WHERE cp.employee_id = e.id AND cp.punch_type = 'saida_almoco' "
-    f"    AND cp.punch_timestamp >= {_REF_ENTRADA}) "
+    f"    AND cp.punch_timestamp >= {_REF_ENTRADA} "
+    # 🔴 30/09/2026, 12:56 — SEM TETO, A BATIDA DE HOJE CASAVA COM O TURNO DE ONTEM.
+    #
+    # A VANDERLICE recebeu a MESMA mensagem duas vezes, com um segundo de diferença. Não era
+    # turno duplicado: eram DOIS turnos reais — o de 29/09 (em que ela faltou) e o de 30/09 —,
+    # e a referência da volta sai da BATIDA, não da escala. A batida de almoço de hoje é
+    # posterior ao início de ontem, então os dois turnos casaram com ela e cada um mandou a sua.
+    #
+    # ⭐ Medido: **14 pessoas** estão hoje nessa configuração (turno ontem E hoje). A janela de
+    # dois dias existe de propósito — o noturno cruza a meia-noite —, então a correção não é
+    # encolher a janela: é **amarrar a batida ao turno dela**.
+    #
+    # ⚠️ E isto não é cosmético: o teto de 3 mensagens por turno é REQUISITO, não preferência.
+    # O docstring deste módulo diz por quê — cadência de spam queima o número do WhatsApp e
+    # derruba junto o canal comercial, que é o mesmo.
+    f"    AND cp.punch_timestamp < {_REF_SAIDA}) "
     " + (coalesce(sh.planned_break_minutes, 60) || ' minutes')::interval)"
 )
 
