@@ -16,10 +16,13 @@ set -uo pipefail
 
 REPO=/opt/conecta-pro
 LABEL=br.pro.conectamais.mcp.git_sha
-BACKEND=conecta-pro-backend
+PG=conecta-pro-postgres
 CONTAINERS=(conecta-pro-mcp conecta-pro-mcp-internal conecta-pro-mcp-ged conecta-pro-mcp-pessoas)
 
 cd "$REPO" || exit 1
+# POSTGRES_USER/POSTGRES_DB saem do mesmo .env que o compose lê.
+# shellcheck disable=SC1091
+[[ -f .env ]] && set -a && . ./.env && set +a
 SHA_GIT=$(git log -1 --format=%H -- mcp-server/)
 
 if [[ "${1:-}" == "--build" ]]; then
@@ -41,6 +44,17 @@ EM=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
 PAYLOAD="{\"em\":\"$EM\",\"sha_git\":\"$SHA_GIT\",\"derivou\":$DERIVOU,\"containers\":{$JSON_CONT}}"
 echo "[deriva] $PAYLOAD"
 
-# Ponte host->container igual à de scripts/oraculos_diarios.sh:34.
-docker exec -e PYTHONPATH=/app "$BACKEND" \
-  python3 /app/modules/notifications/tasks_vigia_mcp.py --registrar "$PAYLOAD"
+# Grava a batida direto no postgres, e NÃO por `docker exec` no backend como faz
+# scripts/oraculos_diarios.sh:34. A diferença: aquele chama um arquivo que está DENTRO da
+# imagem do backend; este script é novo, e o backend é baked — o arquivo só existiria lá
+# depois de um rebuild do ERP inteiro. Medido na primeira execução: "can't open file
+# /app/modules/notifications/tasks_vigia_mcp.py". Escrever por psql desacopla a medição do
+# ciclo de deploy do backend, que é justamente o ciclo que ela existe para vigiar.
+docker exec -i "$PG" psql -qtAX -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-conecta_pro}" \
+  -v ON_ERROR_STOP=1 -v payload="$PAYLOAD" <<'SQL'
+INSERT INTO system_configs (id, chave, valor, descricao, grupo)
+VALUES (gen_random_uuid(), 'mcp.deriva_imagem', :'payload',
+        'Deriva entre a imagem do conector MCP no ar e mcp-server/ no git (vigiado por orq.checar_deriva_mcp)',
+        'mcp')
+ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW();
+SQL

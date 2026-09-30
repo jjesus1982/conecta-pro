@@ -21,7 +21,9 @@ alarme por si, pela mesma razão que fez os 59 oráculos apodrecerem: silêncio 
 Imagem sem o label (`ausente`) ou com `desconhecido` conta como DERIVA, não como igual:
 imagem sem procedência é exatamente o caso que se quer pegar.
 
-    python3 tasks_vigia_mcp.py --registrar '<json>'   (chamado pelo cron do host)
+Só LÊ. Quem grava a batida é `scripts/mcp_deriva_imagem.sh`, por psql — o script é novo e
+o backend é baked, então um arquivo novo aqui só existiria no container depois de um rebuild
+do ERP inteiro, que é o ciclo de deploy que esta medição existe para vigiar.
 """
 
 from __future__ import annotations
@@ -42,25 +44,6 @@ _TOLERANCIA = timedelta(hours=30)
 
 #: Procedência que não prova nada. Tratada como deriva de propósito.
 _SEM_PROCEDENCIA = {"", "ausente", "desconhecido", None}
-
-_SQL_REGISTRAR = """
-    INSERT INTO system_configs (id, chave, valor, descricao, grupo)
-    VALUES (gen_random_uuid(), :chave, :valor,
-            'Deriva entre a imagem do conector MCP no ar e mcp-server/ no git '
-            '(vigiado por orq.checar_deriva_mcp)',
-            'mcp')
-    ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW()
-"""
-
-
-def registrar(payload: dict) -> None:
-    """Grava a batida da medição feita no host. Verde ou vermelha, tanto faz — o que não
-    pode faltar é o registro de que alguém mediu."""
-    from core.database.session import SyncSessionLocal
-
-    with SyncSessionLocal() as db:
-        db.execute(text(_SQL_REGISTRAR), {"chave": _CHAVE, "valor": json.dumps(payload)})
-        db.commit()
 
 
 def _tocar(db, titulo: str, corpo: str, chave_idem: str, extra_campos: dict) -> int:
@@ -159,15 +142,3 @@ def checar_deriva_mcp() -> dict:
         )
         logger.warning("[vigia-mcp] deriva em %s container(es) — sino tocado para %s", len(atrasados), n)
         return {"ok": False, "motivo": "deriva", "atrasados": sorted(atrasados), "avisados": n}
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) == 3 and sys.argv[1] == "--registrar":
-        sys.path.insert(0, "/app")
-        registrar(json.loads(sys.argv[2]))
-        print("[vigia-mcp] batida registrada")
-    else:
-        print(__doc__)
-        sys.exit(2)
