@@ -99,6 +99,13 @@ async def consultar_auditoria(
 ):
     """Log de auditoria das escritas (quem/quando/o quê/resultado). Filtra por método (POST/PUT/DELETE)
     ou trecho do caminho (busca)."""
+    # A coluna nasce no primeiro write auditado; esta rota pode ser a PRIMEIRA a rodar
+    # depois de um deploy, e então o SELECT quebraria com «column a.request_id does not
+    # exist». Aconteceu na primeira prova em 30/09.
+    from core.middleware_audit import _garantir_colunas  # noqa: PLC0415
+
+    await _garantir_colunas(db)
+
     where, p = ["1=1"], {"lim": limite}
     if metodo:
         where.append("a.method = :m")
@@ -106,11 +113,19 @@ async def consultar_auditoria(
     if busca:
         where.append("a.path ILIKE :b")
         p["b"] = f"%{busca}%"
+    # ⭐ BUG-09 (30/09/2026) — `request_id` era ACEITO e IGNORADO. A tool do conector o
+    # enviava, esta rota o recebia, e ele nunca entrava no WHERE: a resposta vinha com a
+    # trilha inteira e HTTP 200. Era por isso que o número no erro não levava a lugar
+    # nenhum. A coluna passou a existir (ver `core/middleware_audit.py`) e agora filtra.
+    if request_id:
+        where.append("a.request_id = :rid")
+        p["rid"] = request_id.strip()
     rows = _rows(
         await db.execute(
             text(f"""
         SELECT to_char(a.ts,'DD/MM/YYYY HH24:MI:SS') quando, COALESCE(u.name, u.email, '—') quem,
-               a.method metodo, a.path caminho, a.status, a.ip
+               a.method metodo, a.path caminho, a.status, a.ip,
+               a.request_id, a.erro
         FROM crm_audit_log a LEFT JOIN users u ON u.id = a.user_id
         WHERE {" AND ".join(where)} ORDER BY a.ts DESC LIMIT :lim
     """),
