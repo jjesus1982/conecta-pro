@@ -112,7 +112,31 @@ def checar_deriva_mcp() -> dict:
             logger.warning("[vigia-mcp] medição ausente — sino tocado para %s", n)
             return {"ok": False, "motivo": "medicao_ausente", "avisados": n}
 
-        # 2. Mediu e derivou.
+        # 2. A parede de testes está vermelha. Antes da deriva de propósito: imagem velha
+        #    com build verde é uma coisa, e build quebrado é outra — quem for assar precisa
+        #    saber que NÃO PODE antes de saber que está atrasado.
+        if medicao.get("parede") == "vermelha":
+            corpo = (
+                f"A parede de testes de `mcp-server/` está VERMELHA no commit "
+                f"{(medicao.get('sha_git') or '?')[:8]}.\n\n"
+                f"{medicao.get('parede_erro') or '(sem detalhe registrado)'}\n\n"
+                f"Enquanto ela estiver assim, `mcp_deriva_imagem.sh --build` vai falhar e "
+                f"nada novo sobe. Em 30/09/2026 ela ficou vermelha por onze dias sem "
+                f"ninguém saber, porque nenhuma CI builda este diretório e a branch de "
+                f"trabalho não casa com os globs de .github/workflows/ci.yml.\n\n"
+                f"Reproduzir: git archive HEAD:mcp-server | docker build -"
+            )
+            n = _tocar(
+                db,
+                "A parede de testes do MCP está vermelha",
+                corpo,
+                f"mcp_parede_vermelha:{dia}",
+                {"motivo": "parede_vermelha", "sha_git": medicao.get("sha_git")},
+            )
+            logger.warning("[vigia-mcp] parede vermelha — sino tocado para %s", n)
+            return {"ok": False, "motivo": "parede_vermelha", "avisados": n}
+
+        # 3. Mediu e derivou.
         sha_git = medicao.get("sha_git") or "?"
         containers = medicao.get("containers") or {}
         atrasados = {c: s for c, s in containers.items() if s in _SEM_PROCEDENCIA or s != sha_git}

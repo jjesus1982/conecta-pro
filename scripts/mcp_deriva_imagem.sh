@@ -10,8 +10,9 @@
 # socket. O script só MEDE e registra a batida; quem toca o sino é o vigia no Celery beat
 # (`orq.checar_deriva_mcp`). Quem vigia não depende do mesmo mecanismo que vigia.
 #
-#   ./scripts/mcp_deriva_imagem.sh           mede e registra a batida
-#   ./scripts/mcp_deriva_imagem.sh --build   builda a imagem COM o GIT_SHA e mede
+#   ./scripts/mcp_deriva_imagem.sh            mede a deriva E a parede, e registra a batida
+#   ./scripts/mcp_deriva_imagem.sh --sem-parede  só a deriva (rápido, sem build)
+#   ./scripts/mcp_deriva_imagem.sh --build       assa de verdade (3 recusas) e mede
 set -uo pipefail
 
 REPO=/opt/conecta-pro
@@ -71,8 +72,35 @@ for c in "${CONTAINERS[@]}"; do
   JSON_CONT+="$([[ -n "$JSON_CONT" ]] && echo ,)\"$c\":\"$sha\""
 done
 
+# A PAREDE. Assar numa tag descartável é a forma mais barata de perguntar "o build passa?"
+# sem tocar em `:latest` nem em container nenhum: os 10 testes rodam DENTRO do build
+# (Dockerfile:43), então um build que passa é a parede verde. Do git archive, igual ao
+# --build: medir a parede do working tree mediria o rascunho de cinco sessões, não o que
+# alguém consegue reproduzir.
+#
+# Por que junto da deriva e não num mecanismo próprio: são as duas metades da mesma
+# pergunta. "O build passa?" sozinho diria «está quebrado» enquanto produção seguia feliz
+# com código de onze dias antes — foi exatamente o que aconteceu em 30/09/2026 e o que
+# faria alguém concluir que o problema era teórico.
+PAREDE=nao_medida
+PAREDE_ERRO=""
+if [[ "${1:-}" != "--sem-parede" ]]; then
+  SAIDA=$(git archive HEAD:mcp-server \
+          | docker build -t conecta-pro-mcp:parede --build-arg GIT_SHA="$SHA_GIT" - 2>&1)
+  if [[ $? -eq 0 ]]; then
+    PAREDE=verde
+  else
+    PAREDE=vermelha
+    # Só as linhas de teste e o erro: o log inteiro não cabe no sino e ninguém leria.
+    PAREDE_ERRO=$(echo "$SAIDA" | grep -E "FAIL|TEST .* FAIL|ERROR" | tail -6 \
+                  | tr '\n' ' ' | tr -d '"' | cut -c1-600)
+  fi
+  docker rmi conecta-pro-mcp:parede >/dev/null 2>&1
+fi
+echo "[deriva] parede: $PAREDE"
+
 EM=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
-PAYLOAD="{\"em\":\"$EM\",\"sha_git\":\"$SHA_GIT\",\"derivou\":$DERIVOU,\"containers\":{$JSON_CONT}}"
+PAYLOAD="{\"em\":\"$EM\",\"sha_git\":\"$SHA_GIT\",\"derivou\":$DERIVOU,\"parede\":\"$PAREDE\",\"parede_erro\":\"$PAREDE_ERRO\",\"containers\":{$JSON_CONT}}"
 echo "[deriva] $PAYLOAD"
 
 # Grava a batida direto no postgres, e NÃO por `docker exec` no backend como faz

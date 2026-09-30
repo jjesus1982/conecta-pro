@@ -4,10 +4,23 @@
 name: CI Pipeline
 
 on:
+  # Os globs anteriores eram [main, master, develop, feature/*] e NENHUM casava com como esta
+  # casa trabalha: 55 branches `dgx/*`, 10 `frente*`, o tronco em `fase5-*`. Medido em
+  # 30/09/2026 — a CI não rodou uma única vez sobre o trabalho em andamento, e a parede de
+  # testes do mcp-server ficou onze dias vermelha sem ninguém saber.
   push:
-    branches: [main, master, develop, feature/*]
+    branches:
+      - main
+      - master
+      - develop
+      - 'feature/*'
+      - 'fase5-*'
+      - 'dgx/*'
+      - 'frente*'
+      - 'fix/*'
+      - 'item-*'
   pull_request:
-    branches: [main, master, feature/*]
+    branches: [main, master, develop, 'feature/*', 'fase5-*']
 
 env:
   PYTHON_VERSION: "3.12"
@@ -499,3 +512,25 @@ jobs:
             "${SLACK_WEBHOOK}"
 
           echo "Notificação Slack enviada com sucesso."
+
+  # ===========================================
+  # JOB: parede de testes do conector MCP
+  # ===========================================
+  mcp-wall:
+    name: MCP — parede de testes (build do mcp-server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A parede do MCP são os 10 testes que rodam DENTRO do build (mcp-server/Dockerfile:43),
+      # e nenhum job desta CI buildava esse diretório: o job de docker build existente assa
+      # `erp-conecta-mais` do Dockerfile da raiz. Onze dias de parede vermelha passaram por
+      # essa lacuna.
+      #
+      # Do `git archive`, igual ao que o host faz em scripts/mcp_deriva_imagem.sh: assar o
+      # working tree mediria o rascunho, não o que está commitado.
+      - name: Assar mcp-server do git (os 10 testes rodam no build)
+        run: |
+          git archive HEAD:mcp-server \
+            | docker build -t conecta-pro-mcp:ci \
+                --build-arg GIT_SHA="${GITHUB_SHA}" -
