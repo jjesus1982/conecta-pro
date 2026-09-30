@@ -233,6 +233,42 @@ def _exigir_ambiente_nfse(tp_amb: str, operacao: str = "Emissão de NFS-e") -> N
         )
 
 
+#: ⭐ CAMADA 3 (30/09/2026) — DISCRIMINAÇÃO DE TESTE NÃO VAI PARA PRODUÇÃO, NUNCA.
+#: As camadas 1 e 2 perguntam «o ambiente está liberado?». Esta pergunta outra coisa:
+#: «este DOCUMENTO é de teste?». São perguntas diferentes e a segunda faltava.
+#:
+#: Em 24/09/2026 saíram 7 notas com «FIXTURE DGX Z7 - PRODUCAO RESTRITA - SEM VALOR
+#: FISCAL», «PROVA DE PRODUCAO EM HOMOLOGACAO» e «PROVA PELO ENDPOINT DE PRODUCAO».
+#: Foram para a produção RESTRITA e ali não valem nada — mas bastava a frase-senha do
+#: gate estar no ambiente para as MESMAS chamadas irem para a produção de verdade,
+#: com ISS devido ao município e sem desfazer.
+#:
+#: Escrever «SEM VALOR FISCAL» no corpo da nota não retira o valor fiscal dela. Quem
+#: escreve isso está dizendo que é ensaio — e ensaio não vai a produção.
+_MARCAS_DE_TESTE = re.compile(
+    r"(fixture|sem\s+valor\s+fiscal|produ[cç][aã]o\s+restrita|homologa[cç][aã]o"
+    r"|teste|testes|prova|dgx|lixo|n[aã]o\s+usar)",
+    re.IGNORECASE,
+)
+
+
+def _recusar_teste_em_producao(descricao: str | None, tp_amb: str, operacao: str) -> None:
+    """Camada 3. Só olha o DOCUMENTO, e só morde em produção."""
+    if tp_amb != "1":
+        return
+    achado = _MARCAS_DE_TESTE.search(str(descricao or ""))
+    if not achado:
+        return
+    raise NFSeAmbienteError(
+        f"{operacao} recusada: a discriminação contém {achado.group(0)!r}, que marca "
+        f"documento de ENSAIO — e ensaio não vai para produção, onde a nota é "
+        f"irreversível e o ISS é devido ao município. Escrever «sem valor fiscal» no "
+        f"corpo não retira o valor fiscal da nota. Use tpAmb=2 (produção restrita) ou "
+        f"escreva a discriminação real do serviço.",
+        code="DISCRIMINACAO_DE_TESTE",
+    )
+
+
 def tp_amb_do_xml(xml: str | bytes) -> list[str]:
     """Os <tpAmb> do que REALMENTE vai no fio (com ou sem prefixo de namespace)."""
     bruto = xml.encode("utf-8") if isinstance(xml, str) else bytes(xml)
@@ -576,6 +612,12 @@ class NFSeNacionalManager:
         # Camada 1 da trava: ANTES de montar, assinar ou reservar qualquer coisa.
         # Vale para TODO chamador deste manager — não só para o emissor da Z7.
         _exigir_ambiente_nfse(self.tp_amb, "Emissão de NFS-e")
+        # Camada 3: o gate libera o AMBIENTE; esta linha olha o DOCUMENTO. Com a
+        # frase-senha no ambiente, as 7 notas de ensaio de 24/09 teriam ido para a
+        # produção de verdade — as camadas 1 e 2 não fazem esta pergunta.
+        _recusar_teste_em_producao(
+            getattr(getattr(dps, "servico", None), "descricao", None), self.tp_amb, "Emissão de NFS-e"
+        )
 
         # 1. Construir XML
         if _sem_im and dps.prestador:

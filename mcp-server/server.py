@@ -1039,6 +1039,55 @@ async def consultar_funil() -> dict:
 
 
 @mcp.tool
+async def preview_notas_da_proposta(proposta_id: str) -> dict:
+    """O PLANO de emissão de uma proposta: quantas notas, de qual empresa, de quanto.
+
+    NÃO emite nada. A proposta PODE misturar material, serviço técnico e mão de obra; a
+    NOTA nunca pode — cada classe sai por um CNPJ, num regime tributário diferente. Uma
+    proposta com material + instalação + posto de portaria gera TRÊS notas:
+
+        material         → NF-e  · Conecta Mais Eletrônica  · ICMS
+        servico_tecnico  → NFS-e · Conecta Mais Eletrônica  · ISS 5%
+        mao_de_obra      → NFS-e · Conecta Mais Patrimonial · ISS 0% + INSS 11%
+
+    Cada nota já vem com a conta bancária do PRÓPRIO emitente — 4 notas da Patrimonial
+    mandaram o cliente pagar no Inter da Eletrônica porque a linha era texto colado.
+
+    RECUSA, nomeando o que falta, quando: há item sem `classe_fiscal`; há item carimbado
+    com empresa que contradiz a classe; ou a proposta é tipo B/C/D sem `data_execucao`.
+    Só lê.
+    """
+    try:
+        return await erp.get(f"/crm/proposals/{proposta_id}/notas/preview")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
+async def registrar_execucao(proposta_id: str, data_execucao: str, executado_por: str,
+                             aceite_cliente_nome: str | None = None) -> dict:
+    """Registra QUANDO o serviço foi executado e por QUEM — substitui a ordem de serviço.
+
+    `listar_ordens_servico` devolve ZERO: o módulo de OS existe desde sempre e nunca foi
+    usado. Decisão do dono em 30/09/2026: não usar OS; os campos moram na proposta.
+
+    É TRAVA de faturamento: proposta tipo B (obra), C (avulso) ou D (material) não emite
+    nota sem `data_execucao`. Tipo A é recorrente e não passa por ela.
+
+    `data_execucao` no formato AAAA-MM-DD.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
+    corpo: dict = {"data_execucao": data_execucao, "executado_por": executado_por}
+    if aceite_cliente_nome:
+        corpo["aceite_cliente"] = {"nome": aceite_cliente_nome, "data": data_execucao}
+    try:
+        return await erp.post(f"/crm/proposals/{proposta_id}/execucao", json=corpo)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
 async def criar_oportunidade(
     cliente: str,
     titulo: str,

@@ -117,6 +117,8 @@ ESCOPOS: dict[str, list[str]] = {
         "criar_cliente",
         "criar_lead",
         "criar_oportunidade",
+        "preview_notas_da_proposta",
+        "registrar_execucao",
         "criar_proposta",
         "criar_propostas_lote",
         "criar_relatorio_visita",

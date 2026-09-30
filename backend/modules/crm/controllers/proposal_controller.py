@@ -2,6 +2,8 @@
 Controller (endpoints) para Proposal.
 """
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -325,6 +327,67 @@ async def list_proposals(  # pylint: disable=too-many-locals
         # em vez de contar 14 onde há 15 e não desconfiar de nada.
         object.__setattr__(resp, "__dict__", {**resp.__dict__, "avisos": problemas})
     return resp
+
+
+# ============== Emissão a partir da proposta (prompt 2 [3] e [7]) ==============
+
+
+class ExecucaoIn(BaseModel):
+    """Registro de execução — substitui a OS, que o dono decidiu não usar (30/09/2026)."""
+
+    data_execucao: date
+    executado_por: str
+    aceite_cliente: dict | None = None
+
+
+@router.get("/{proposal_id}/notas/preview")
+async def preview_notas_da_proposta(
+    proposal_id: str,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """O PLANO de emissão: quantas notas, de qual empresa, com qual valor e natureza.
+
+    Não emite nada. A proposta pode misturar material, serviço técnico e mão de obra; a
+    NOTA nunca pode — cada classe sai por um CNPJ, num regime diferente. Uma proposta com
+    material + instalação + posto de portaria gera TRÊS notas.
+
+    Aborta, nomeando o que falta, quando: há item sem `classe_fiscal`; há item carimbado
+    com empresa que contradiz a classe; ou a proposta é tipo B/C/D sem `data_execucao`.
+    """
+    from modules.crm.services import notas_da_proposta as _n
+
+    r = await _n.preview(db, proposal_id)
+    if not r.get("ok"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=r.get("erro"))
+    return r
+
+
+@router.post("/{proposal_id}/execucao")
+async def registrar_execucao_da_proposta(
+    proposal_id: str,
+    data: ExecucaoIn,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Registra quando o serviço foi executado, por quem, e o aceite do cliente.
+
+    `listar_ordens_servico` devolvia ZERO: o módulo de OS existe e nunca foi usado. Em vez
+    de fazer o dono adotar um módulo morto, os três campos moram na proposta e são a trava
+    do faturamento — tipo B, C e D não faturam sem `data_execucao`.
+    """
+    from modules.crm.services import notas_da_proposta as _n
+
+    r = await _n.registrar_execucao(
+        db,
+        proposal_id,
+        data_execucao=data.data_execucao,
+        executado_por=data.executado_por,
+        aceite_cliente=data.aceite_cliente,
+    )
+    if not r.get("ok"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=r.get("erro"))
+    return r
 
 
 # ============== Template Endpoints (antes de /{proposal_id} — evita captura de rota) ==============

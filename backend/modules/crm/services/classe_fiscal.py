@@ -211,6 +211,75 @@ TIPOS_COM_CONTRATO = frozenset({"A", "B"})
 TIPOS_COM_EXECUCAO = frozenset({"B", "C", "D"})
 
 
+# ── DADOS BANCÁRIOS POR EMPRESA (prompt 2 [6]) ─────────────────────────────────────────
+# ⚠️ MEDIDO EM 30/09/2026 — 4 NOTAS DA PATRIMONIAL MANDARAM O CLIENTE PAGAR NA CONTA
+# DA ELETRÔNICA. A discriminação é texto colado, e o texto colado envelhece:
+#
+#     nº  1  25/06  R$ 42.544,50  Residencial Laranjeiras Village
+#     nº  2  25/06  R$ 42.544,50  Residencial Laranjeiras Village
+#     nº  3  25/06  R$ 42.544,50  Residencial Laranjeiras Village
+#     nº 22  20/08  R$  3.879,60  Condomínio Prime Arena
+#                   R$ 131.513,10 mandados para o CNPJ errado
+#
+# O prompt do Jordan citava só a nº 22. São quatro, e as três de junho são as maiores.
+# O contrário não acontece: ZERO notas da Eletrônica citam a Cora. O erro tem direção —
+# a Patrimonial nasceu depois, e quem copiava a discriminação copiava a da Eletrônica.
+#
+# A conta não é escolha de quem digita: é atributo do EMITENTE.
+
+DADOS_BANCARIOS: dict[str, dict[str, str]] = {
+    ELETRONICA: {
+        "banco": "INTER",
+        "codigo": "077",
+        "agencia": "0001",
+        "conta": "37099007-2",
+        "pix": "35.710.481/0001-03",
+    },
+    PATRIMONIAL: {
+        "banco": "CORA SCD",
+        "codigo": "403",
+        "agencia": "0001",
+        "conta": "7382527-7",
+        "pix": "66.014.833/0001-10",
+    },
+}
+
+
+def linha_bancaria(empresa_id: str) -> str:
+    """A linha de dados bancários do EMITENTE, montada — nunca colada."""
+    b = DADOS_BANCARIOS.get(str(empresa_id))
+    if not b:
+        raise ValueError(
+            f"não tenho dados bancários para a empresa {empresa_id!r} — "
+            f"e chutar conta é mandar o cliente pagar no lugar errado"
+        )
+    return f"BANCO {b['banco']}: {b['codigo']} AGÊNCIA: {b['agencia']} CONTA: {b['conta']} CHAVE PIX: CNPJ {b['pix']}."
+
+
+def cnpj_da_empresa(empresa_id: str) -> str:
+    return {ELETRONICA: "35710481000103", PATRIMONIAL: "66014833000110"}[str(empresa_id)]
+
+
+# ── RETENÇÃO DE INSS (prompt 2 [5]) ────────────────────────────────────────────────────
+# Art. 31 da Lei 9.711/98: 11% sobre o valor bruto dos serviços de CESSÃO DE MÃO DE OBRA,
+# deduzidos VT e VA quando destacados. Só `mao_de_obra` — serviço técnico não retém.
+#
+# Conferido contra a NFS-e nº 35 real (Laranjeiras Village):
+#     bruto    R$ 42.544,50
+#     deduções R$  3.688,00  (VA 2.552,00 + VT 1.136,00)
+#     base     R$ 38.856,50
+#     11%      R$  4.274,21   ← e 38856.50 × 0.11 = 4274.215, que arredonda para 4.274,22
+#
+# O centavo de diferença é o arredondamento do fisco (trunca, não arredonda). Por isso
+# a função TRUNCA: copiar o comportamento do fisco vale mais que a matemática redonda.
+
+
+def retencao_inss(valor_bruto: float, deducoes: float = 0.0) -> dict[str, float]:
+    """Base e retenção de INSS. TRUNCA no centavo, como a NFS-e nº 35 comprova."""
+    base = max(0.0, float(valor_bruto) - float(deducoes))
+    return {"base": round(base, 2), "retencao": int(base * INSS_RETENCAO * 100) / 100, "aliquota": INSS_RETENCAO * 100}
+
+
 # ── DDL IDEMPOTENTE ────────────────────────────────────────────────────────────────────
 # Mesmo padrão de `item_do_catalogo.garantir_coluna`: a coluna nasce na primeira chamada.
 # `alembic/versions/` é zona proibida por CLAUDE.md e este caminho já é o da casa.
