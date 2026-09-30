@@ -1776,9 +1776,20 @@ async def _legivel(r: dict, formato: str, forcar_base64: bool = False) -> dict:
     return r
 
 
-async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool = False,
+async def _gerar_doc(path: str, payload: dict, teste: bool = False, drive: bool = False,
                      formato: str = "base64") -> dict:
-    """Gera o documento (POST), REGISTRA no Conecta PRO e devolve o LINK público. drive=True: sobe pro Google Drive."""
+    """Gera o documento (POST), REGISTRA no Conecta PRO e devolve o LINK público. drive=True: sobe pro Google Drive.
+
+    ⭐ 30/09/2026 — `teste` NASCIA `True` AQUI, e nenhum dos 5 chamadores passava outro valor.
+    Resultado: TODO orçamento, recibo, aditivo, atestado e OS gerado pelo Cowork nascia
+    marcado como lixo de teste. 174 documentos comerciais reais — Villa Toscana, Villa-Lobos,
+    Michelangelo, Prime Arena, Estilo Golf, Green Hills e 6 versões da PROP-2026-00114 —
+    ficaram na mira do `expurgar_documentos_teste`, que arquiva por essa flag.
+
+    A rota `/docs/orcamento/pdf` SEMPRE teve `teste: bool = False`. O `true` era do CHAMADOR,
+    e o chamador é esta linha. Em 30/09 eu escrevi no commit 2f9359559 que «o teste=true do
+    cliente MCP não pode ser corrigido daqui — ele não está neste repositório». Estava
+    errado: está, e é esta função."""
     try:
         r = await erp.post(f"{path}?salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}", json=payload)
     except Exception as exc:  # noqa: BLE001
@@ -1789,7 +1800,7 @@ async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool =
     return await _legivel(saida, formato)
 
 
-async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False,
+async def _gerar_doc_get(path: str, teste: bool = False, drive: bool = False,
                          formato: str = "base64") -> dict:
     """Idem (GET): gera doc de uma entidade existente (proposta/contrato/relatório), registra + link. drive=True: sobe pro Drive."""
     sep = "&" if "?" in path else "?"
@@ -2088,6 +2099,8 @@ async def gerar_recibo_pdf(pagador: str, valor: float, referente: str, documento
     Ex.: pagador='CONDOMINIO X', valor=6000, referente='portaria remota — junho/2026'.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    `teste=true` SÓ para ensaio: marca o documento como descartável e ele entra na mira do
+    `expurgar_documentos_teste`. Orçamento de cliente real vai com o padrão (false).
         `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
     documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
     Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
@@ -3837,6 +3850,7 @@ async def gerar_orcamento(
     numero: str | None = None,
     salvar_no_drive: bool = False,
     formato: str = "base64",
+    teste: bool = False,
 ) -> dict:
     """Gera um ORÇAMENTO / proposta de PAGAMENTO ÚNICO no padrão-ouro Conecta PRO — para MATERIAL,
     SERVIÇO ou ambos (misto), SEM recorrência mensal. É a opção certa para venda de material,
@@ -3871,7 +3885,7 @@ async def gerar_orcamento(
         "condicoes": condicoes or None,
     }
     return await _gerar_doc("/crm/docs/orcamento/pdf", payload, drive=salvar_no_drive,
-                            formato=formato)
+                            formato=formato, teste=teste)
 
 
 # =================================================================== JURÍDICO

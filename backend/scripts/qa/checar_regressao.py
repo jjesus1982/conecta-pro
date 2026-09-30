@@ -490,6 +490,11 @@ TRAVAS_BINARIAS = {
     # `from X import Y` com X apagado do disco: o servidor ou o celery cai no BOOT, um bake
     # por vez (07/09/2026: analytics, ai/contract_analysis, ai/signature). Lê o disco: host.
     "checar_import_orfao.py": ("host", "import de topo para módulo que não existe mais", 300),
+    # HOST e não container: varre `mcp-server/`, que não existe dentro do /app. 30/09/2026 —
+    # `_gerar_doc(teste=True)` fez 174 documentos comerciais reais nascerem marcados como
+    # lixo, na mira do expurgo. Nenhum teste pegava: cada função fazia o que a assinatura
+    # mandava, e o defeito ERA a assinatura.
+    "checar_flag_teste_padrao.py": ("host", "flag de descarte ligada no padrão da assinatura", 300),
     # Cobertura rotas × telas (08/09/2026): toda rota montada precisa de chamador — redesign, interno
     # (MCP/Hermes/tasks/robôs/cron), alias, externo (webhook) ou dono. Fechou em 0 · 0 com 1220 rotas;
     # rota nova sem tela volta a acusar aqui. Leva ~1 min (enumera as rotas dentro do container).
