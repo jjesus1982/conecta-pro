@@ -188,7 +188,24 @@ MARCOS: dict[str, dict] = {
         # não tem, usando a batida errada como prova de que ele saiu para almoçar. **Um dado
         # errado à montante vira mensagem confiante à jusante** — e a mensagem ensina a pessoa
         # a repetir o erro.
-        "extra": "AND coalesce(p.tem_intervalo_almoco, true) = true",
+        # 🔴 30/09/2026, 01:21 — INTERVALO ZERO MANDAVA A PESSOA VOLTAR NO INSTANTE EM QUE SAIU.
+        #
+        # O DANIEL bateu `saida_almoco` às **01:16** e às 01:21 recebeu «Passou das **01:16** e
+        # você não bateu a volta do almoço». A conta é `saída + intervalo`, e o turno dele de
+        # 29/09 tem `planned_break_minutes = 0` — enquanto TODOS os outros turnos dele (01/10 em
+        # diante) têm 60.
+        #
+        # ⭐ O `coalesce(..., 60)` do `_REF_RETORNO` defende contra NULL e **aceita o zero como
+        # intervalo real**. Zero não é «intervalo de zero minuto»: é «não há intervalo».
+        #
+        # ⚠️ E não é caso isolado: medido na janela de ±30 dias, **383 turnos com intervalo 0,
+        # em 34 pessoas** (contra 1.387 com 60). Oito dessas pessoas têm turnos com zero E batem
+        # almoço na prática — a contradição está no cadastro, não nelas.
+        #
+        # A guarda de POSTO (`tem_intervalo_almoco`) não pega isto: o Ideal Flores TEM intervalo,
+        # e o zero estava no TURNO. Duas fontes, duas guardas.
+        "extra": ("AND coalesce(p.tem_intervalo_almoco, true) = true "
+                  "AND coalesce(sh.planned_break_minutes, 60) > 0"),
         "textos": {
             -TOLERANCIA_MIN: (
                 "Seu intervalo no {posto} termina às {hora}, em {tol} minutos. Bata a *volta "
