@@ -1039,6 +1039,38 @@ async def consultar_funil() -> dict:
 
 
 @mcp.tool
+async def criar_oportunidade(
+    cliente: str,
+    titulo: str,
+    valor: float = 0.0,
+    estagio: str = "qualification",
+    probabilidade: int | None = None,
+    descricao: str | None = None,
+) -> dict:
+    """ABRE uma oportunidade (deal) no funil para um cliente do cadastro.
+
+    `cliente`: id, CNPJ ou nome EXATO do cadastro. Cliente que não existe RECUSA — use
+    `criar_cliente` antes; não se cria cliente de passagem.
+    `estagio`: qualification | needs_analysis | proposal | negotiation. Fechar venda
+    (closed_won) não passa por aqui: vira MRR e contrato, e tem porta própria.
+    `probabilidade`: 0-100. Omitida, herda o padrão do estágio (10/30/60/75).
+
+    Contato e e-mail saem do CADASTRO do cliente — são NOT NULL na tabela e é por isso que
+    esta tool existe: `POST /crm/opportunities` exige os dois e ninguém os tem à mão numa
+    conversa. Até 30/09/2026 não havia tool nenhuma que criasse deal, e sem deal o
+    `proposta_da_oportunidade` pedia um id impossível de obter para cliente novo.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
+    try:
+        return await erp.post("/crm/oportunidades/do-cliente", json={
+            "cliente": cliente, "titulo": titulo, "valor": valor,
+            "estagio": estagio, "probabilidade": probabilidade, "descricao": descricao})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
 async def criar_proposta(
     titulo: str,
     cliente_nome: str,

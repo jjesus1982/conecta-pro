@@ -130,6 +130,7 @@ TOOL_RISK: dict[str, str] = {
     "criar_cliente": "write_low",
     "criar_contrato": "write_low",
     "criar_lead": "write_low",
+    "criar_oportunidade": "write_low",
     "criar_proposta": "write_low",
     "criar_propostas_lote": "write_low",
     "criar_relatorio_visita": "write_low",

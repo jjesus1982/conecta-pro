@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging as _lg
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -2108,6 +2109,105 @@ class NotaIn(BaseModel):
 async def anotar_cliente_ep(data: NotaIn, user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     """Adiciona uma anotação à ficha viva do cliente (compartilhada com o José Luís)."""
     return await O.anotar_cliente(db, data.ref, data.nota, autor=getattr(user, "email", None))
+
+
+class OportunidadeDoClienteIn(BaseModel):
+    """Oportunidade nascendo de um cliente que JÁ existe no cadastro."""
+
+    cliente: str  # id, CNPJ ou nome do cadastro
+    titulo: str
+    valor: float = 0.0
+    estagio: str = "qualification"
+    probabilidade: int | None = None
+    descricao: str | None = None
+
+
+#: Estágio × probabilidade padrão. Espelha `pipeline_sync._STAGE_PROB` — quem informar
+#: `probabilidade` manda, quem não informar herda o que o funil já assume.
+_PROB_ESTAGIO = {"qualification": 10, "needs_analysis": 30, "proposal": 60, "negotiation": 75}
+
+
+@router.post("/oportunidades/do-cliente", status_code=201)
+async def criar_oportunidade_do_cliente(
+    data: OportunidadeDoClienteIn,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Cria uma oportunidade para um cliente do cadastro (BUG-08, 30/09/2026).
+
+    `listar_deals` devolvia 23 deals e nenhuma das 277 tools criava um. Quem tinha cliente
+    novo não conseguia começar o funil: `proposta_da_oportunidade` exige um `opportunity_id`
+    que não havia como obter. O caminho existia — `POST /crm/opportunities` — mas exige
+    `contact_name` e `contact_email` NOT NULL, que ninguém tem à mão numa conversa.
+
+    Esta rota tira os dois do CADASTRO do cliente. Cliente inexistente RECUSA: criar cliente
+    de passagem faria o cadastro crescer por digitação.
+    """
+    from modules.crm.models.opportunity import Opportunity
+
+    alvo = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, name, email, COALESCE(whatsapp, mobile, phone) AS fone "
+                    "  FROM clients "
+                    " WHERE id::text = :r "
+                    "    OR regexp_replace(coalesce(document_number,''),'[^0-9]','','g') "
+                    "       = regexp_replace(:r,'[^0-9]','','g') "
+                    "    OR upper(name) = upper(:r) "
+                    " ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"
+                ),
+                {"r": data.cliente.strip()},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not alvo:
+        raise HTTPException(
+            404,
+            f"cliente {data.cliente!r} não existe no cadastro. "
+            f"Cadastre antes (criar_cliente) ou confira o nome/CNPJ — "
+            f"não crio cliente de passagem.",
+        )
+
+    estagio = (data.estagio or "qualification").strip().lower()
+    if estagio not in _PROB_ESTAGIO:
+        raise HTTPException(
+            422,
+            f"estágio {estagio!r} não abre funil. Use um de: "
+            f"{', '.join(_PROB_ESTAGIO)}. Fechar (closed_won/"
+            f"closed_lost) tem porta própria e não nasce aqui.",
+        )
+
+    opp = Opportunity(
+        id=str(uuid.uuid4()),
+        title=data.titulo[:255],
+        description=data.descricao,
+        contact_name=(alvo["name"] or "Cliente")[:255],
+        # NOT NULL no banco. O cadastro tem e-mail nos 32 clientes; o fallback existe para
+        # o dia em que um entrar sem, e é reconhecível como fallback à vista.
+        contact_email=(alvo["email"] or f"sem-email-{alvo['id'][:8]}@conectamais.pro")[:255],
+        contact_phone=(alvo["fone"] or None),
+        company_name=(alvo["name"] or None),
+        stage=estagio,
+        priority="medium",
+        value=float(data.valor or 0),
+        probability=int(data.probabilidade if data.probabilidade is not None else _PROB_ESTAGIO[estagio]),
+        is_active=True,
+    )
+    db.add(opp)
+    await db.commit()
+    return {
+        "ok": True,
+        "id": str(opp.id),
+        "titulo": opp.title,
+        "estagio": opp.stage,
+        "valor": float(opp.value),
+        "probabilidade": opp.probability,
+        "cliente": alvo["name"],
+        "cliente_id": alvo["id"],
+    }
 
 
 @router.get("/clientes/ficha")
