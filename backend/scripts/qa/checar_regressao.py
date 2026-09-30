@@ -500,6 +500,10 @@ TRAVAS_BINARIAS = {
     # CONTAGEM antes × depois, e o oráculo AA2 apagava no início e inseria — saldo zero.
     # Delta é cego para apagar-e-inserir; esta olha o ESTADO.
     "checar_fixture_viva.py": ("container", "registro de teste visível na listagem do dono", 300),
+    # CONTAINER: lê `nfse_emitidas_nacional`. 30/09/2026 — 4 notas da PATRIMONIAL mandavam
+    # pagar no Inter com o CNPJ da ELETRÔNICA (3 canceladas, 1 viva de R$ 42.544,50). A
+    # linha bancária era texto COLADO na discriminação, e texto colado envelhece.
+    "checar_conta_na_nota.py": ("container", "nota mandando pagar na conta da outra empresa", 300),
     # Cobertura rotas × telas (08/09/2026): toda rota montada precisa de chamador — redesign, interno
     # (MCP/Hermes/tasks/robôs/cron), alias, externo (webhook) ou dono. Fechou em 0 · 0 com 1220 rotas;
     # rota nova sem tela volta a acusar aqui. Leva ~1 min (enumera as rotas dentro do container).

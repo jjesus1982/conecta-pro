@@ -54,15 +54,30 @@ SELECT e.slug AS emitente, n.numero, n.data_emissao::date AS quando,
 """
 
 
+#: DECLARADAS. Nota JA AUTORIZADA e decisao do contador, nao minha — e uma trava que fica
+#: vermelha para sempre por algo que ninguem pode consertar deixa de ser lida. Cada linha
+#: aqui e um item na mesa do Jordan, com o motivo escrito. Nota NOVA com o mesmo defeito
+#: nao esta nesta lista e acende.
+DECLARADAS = {
+    ("conecta_patrimonial", "3"): (
+        "R$ 42.544,50, Laranjeiras Village, 25/06/2026. Autorizada e VIVA, apontando para "
+        "o Inter/Eletronica. Cancelar e reemitir e decisao do contador; as notas 1 e 2, "
+        "mesmo valor e mesmo dia, ja foram canceladas."
+    ),
+}
+
+
 async def main() -> int:
     async with async_session_factory() as db:
         linhas = (await db.execute(text(SQL))).mappings().all()
 
+    novas = [r for r in linhas if not r["cancelada"] and (r["emitente"], str(r["numero"])) not in DECLARADAS]
     vivas = [r for r in linhas if not r["cancelada"]]
     canceladas = [r for r in linhas if r["cancelada"]]
 
     for r in linhas:
-        marca = "cancelada   " if r["cancelada"] else "CONTA ERRADA"
+        chave = (r["emitente"], str(r["numero"]))
+        marca = "cancelada   " if r["cancelada"] else "declarada   " if chave in DECLARADAS else "CONTA ERRADA"
         print(
             f"{marca}  {r['emitente']:<20} nº {r['numero']:>4}  {r['quando']}  "
             f"R$ {float(r['valor'] or 0):>12,.2f}  cita o CNPJ da {r['cnpj_citado']}"
@@ -71,22 +86,20 @@ async def main() -> int:
 
     vivo = sum(float(r["valor"] or 0) for r in vivas)
     print(
-        f"\n{len(linhas)} nota(s) com o CNPJ do irmão na discriminação · "
-        f"{len(canceladas)} cancelada(s) · {len(vivas)} VIVA(s), R$ {vivo:,.2f}"
+        f"\n{len(linhas)} nota(s) com o CNPJ do irmao na discriminacao - "
+        f"{len(canceladas)} cancelada(s) - {len(vivas)} VIVA(s), R$ {vivo:,.2f} - "
+        f"{len(novas)} NAO declarada(s)"
     )
-    if vivas:
+    for (emit, num), motivo in DECLARADAS.items():
+        print(f"  declarada {emit} no {num}: {motivo}")
+    if novas:
         print(
-            "Nota viva manda o cliente pagar na conta errada — o dinheiro entra na "
-            "empresa errada e a conciliação nunca fecha."
+            "\nNota NOVA mandando pagar na conta errada - o dinheiro entra na empresa "
+            "errada e a conciliacao nunca fecha."
         )
-        print(
-            "A linha bancária tem de vir de `classe_fiscal.linha_bancaria(empresa_id)`, "
-            "nunca de texto colado. Nota já autorizada: decisão do contador."
-        )
+        print("A linha bancaria tem de vir de `classe_fiscal.linha_bancaria(empresa_id)`, nunca de texto colado.")
         return 1
-    if canceladas:
-        print("Todas canceladas: ninguém foi mandado pagar. Fica o registro do defeito.")
-    print("VEREDITO: nenhuma nota VIVA aponta para a conta da outra empresa.")
+    print("VEREDITO: nenhuma nota NOVA aponta para a conta da outra empresa.")
     return 0
 
 
