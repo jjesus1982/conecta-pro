@@ -1,6 +1,11 @@
 services:
   conecta-pro-mcp:
-    build: .
+    build:
+      context: .
+      args:
+        # Buildar por `scripts/mcp_deriva_imagem.sh --build` preenche isto. Buildar à mão
+        # sem a variável deixa `desconhecido`, e o vigia trata isso como deriva.
+        GIT_SHA: ${MCP_GIT_SHA:-desconhecido}
     image: conecta-pro-mcp:latest
     container_name: conecta-pro-mcp
     restart: unless-stopped

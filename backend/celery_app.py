@@ -62,6 +62,7 @@ app = Celery(
         # Vigia de AUSÊNCIA da varredura dos oráculos (a varredura em si roda por cron do
         # host; quem vigia não pode depender do mesmo mecanismo que vigia).
         "modules.notifications.tasks_vigia_oraculos",
+        "modules.notifications.tasks_vigia_mcp",
     ],
 )
 
@@ -241,6 +242,15 @@ app.conf.beat_schedule = {
     "oraculos-vigia-ausencia": {
         "task": "orq.checar_varredura_ausente",
         "schedule": crontab(hour=8, minute=11),
+        "options": {"queue": "gov.batch"},
+    },
+    # ── `healthy` não prova que o código no ar é o do git: em 30/09/2026 eram onze dias de
+    #    diferença, com a parede de testes vermelha e os quatro containers verdes. A medição
+    #    é cron do host (só lá existe o label da imagem); aqui fica o alarme, inclusive o de
+    #    "ninguém mediu". 08:21, depois da janela de medição.
+    "mcp-vigia-deriva-imagem": {
+        "task": "orq.checar_deriva_mcp",
+        "schedule": crontab(hour=8, minute=21),
         "options": {"queue": "gov.batch"},
     },
     # ── Os 59 oráculos NÃO rodam aqui: um oráculo tem pico de 894 MB (importa o app) e

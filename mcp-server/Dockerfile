@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# De qual commit esta imagem nasceu. Sem isto não havia como responder "o que está no ar é
+# o que está no git?" — e não havia: a imagem em produção ficou 11 dias atrás da fonte, com
+# a parede de testes vermelha, e ninguém soube. O default `desconhecido` é recusado pelo
+# vigia de propósito: imagem sem procedência conta como deriva.
+ARG GIT_SHA=desconhecido
+LABEL br.pro.conectamais.mcp.git_sha=$GIT_SHA
+
 WORKDIR /app
 
 COPY requirements.txt .
